@@ -161,3 +161,8 @@ doc/api/
 ._*
 Thumbs.db
 Desktop.ini
+
+# ==========================
+# 🌳 LOCAL WORKTREES
+# ==========================
+.worktrees/
