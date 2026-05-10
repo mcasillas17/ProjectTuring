@@ -47,6 +47,16 @@ class TuringWsClient implements TuringEventSource {
           ),
         ];
       }
+      if (message['type'] == 'resync_required') {
+        throw const TuringWebSocketException(
+          'WebSocket replay gap is too large; refetch session state.',
+        );
+      }
+      if (message['type'] == 'error') {
+        throw TuringWebSocketException(
+          message['message'] as String? ?? 'WebSocket error',
+        );
+      }
       return const <TuringEvent>[];
     });
   }
@@ -63,4 +73,13 @@ class TuringWsClient implements TuringEventSource {
       queryParameters: {'token': apiKey},
     );
   }
+}
+
+class TuringWebSocketException implements Exception {
+  const TuringWebSocketException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'TuringWebSocketException: $message';
 }
