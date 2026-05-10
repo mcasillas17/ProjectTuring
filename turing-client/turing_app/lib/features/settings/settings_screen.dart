@@ -9,12 +9,14 @@ class SettingsScreen extends StatefulWidget {
     this.onSaved,
     this.initialBackendUrl = 'http://localhost:3000',
     this.initialApiKey = '',
+    this.embedded = false,
   });
 
   final ClientAuthStorage authStorage;
   final VoidCallback? onSaved;
   final String initialBackendUrl;
   final String initialApiKey;
+  final bool embedded;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -34,33 +36,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final body = ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        TextField(
+          controller: _backendUrl,
+          decoration: const InputDecoration(labelText: 'Backend URL'),
+          keyboardType: TextInputType.url,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _apiKey,
+          decoration: const InputDecoration(labelText: 'API key'),
+          obscureText: true,
+        ),
+        const SizedBox(height: 16),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: const Icon(Icons.save),
+            label: Text(_saving ? 'Saving...' : 'Save'),
+          ),
+        ),
+      ],
+    );
+
+    if (widget.embedded) {
+      return body;
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Project Turing Settings')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          TextField(
-            controller: _backendUrl,
-            decoration: const InputDecoration(labelText: 'Backend URL'),
-            keyboardType: TextInputType.url,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _apiKey,
-            decoration: const InputDecoration(labelText: 'API key'),
-            obscureText: true,
-          ),
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: const Icon(Icons.save),
-              label: Text(_saving ? 'Saving...' : 'Save'),
-            ),
-          ),
-        ],
-      ),
+      body: body,
     );
   }
 

@@ -16,6 +16,7 @@ class SessionListScreen extends StatefulWidget {
     this.onSettingsChanged,
     this.initialBackendUrl = 'http://localhost:3000',
     this.initialApiKey = '',
+    this.embedded = false,
   });
 
   final TuringApi apiClient;
@@ -24,6 +25,7 @@ class SessionListScreen extends StatefulWidget {
   final VoidCallback? onSettingsChanged;
   final String initialBackendUrl;
   final String initialApiKey;
+  final bool embedded;
 
   @override
   State<SessionListScreen> createState() => _SessionListScreenState();
@@ -90,6 +92,27 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final body = _buildSessionsBody();
+    final newChatButton = FloatingActionButton.extended(
+      onPressed: _creating ? null : _createSession,
+      icon: _creating
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.add),
+      label: Text(_creating ? 'Creating...' : 'New chat'),
+    );
+
+    if (widget.embedded) {
+      return Stack(
+        children: [
+          Positioned.fill(child: body),
+          Positioned(right: 24, bottom: 24, child: newChatButton),
+        ],
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Project Turing Sessions'),
@@ -102,48 +125,43 @@ class _SessionListScreenState extends State<SessionListScreen> {
             ),
         ],
       ),
-      body: FutureBuilder<List<Session>>(
-        future: _sessionsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text(snapshot.error.toString()));
-          }
-          final sessions = snapshot.data ?? const [];
-          if (sessions.isEmpty) {
-            return const Center(child: Text('No sessions yet.'));
-          }
-          return ListView.separated(
-            itemCount: sessions.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final session = sessions[index];
-              return ListTile(
-                leading: const Icon(Icons.chat_bubble_outline),
-                title: Text(
-                  session.title?.isNotEmpty == true
-                      ? session.title!
-                      : 'Untitled chat',
-                ),
-                subtitle: Text(session.updatedAt.toLocal().toString()),
-                onTap: () => _openChat(session.sessionId),
-              );
-            },
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _creating ? null : _createSession,
-        icon: _creating
-            ? const SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.add),
-        label: Text(_creating ? 'Creating...' : 'New chat'),
-      ),
+      body: body,
+      floatingActionButton: newChatButton,
+    );
+  }
+
+  Widget _buildSessionsBody() {
+    return FutureBuilder<List<Session>>(
+      future: _sessionsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text(snapshot.error.toString()));
+        }
+        final sessions = snapshot.data ?? const [];
+        if (sessions.isEmpty) {
+          return const Center(child: Text('No sessions yet.'));
+        }
+        return ListView.separated(
+          itemCount: sessions.length,
+          separatorBuilder: (_, _) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final session = sessions[index];
+            return ListTile(
+              leading: const Icon(Icons.chat_bubble_outline),
+              title: Text(
+                session.title?.isNotEmpty == true
+                    ? session.title!
+                    : 'Untitled chat',
+              ),
+              subtitle: Text(session.updatedAt.toLocal().toString()),
+              onTap: () => _openChat(session.sessionId),
+            );
+          },
+        );
+      },
     );
   }
 }

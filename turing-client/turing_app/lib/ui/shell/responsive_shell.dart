@@ -1,10 +1,29 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart'; // Import constants
+import '../../features/sessions/session_list_screen.dart';
+import '../../features/settings/settings_screen.dart';
 import '../../logic/theme_logic.dart';
-import '../chat/chat_screen.dart';
+import '../../networking/api_client.dart';
+import '../../networking/auth_storage.dart';
+import '../../networking/ws_client.dart';
 
 class ResponsiveShell extends StatefulWidget {
-  const ResponsiveShell({super.key});
+  const ResponsiveShell({
+    super.key,
+    required this.apiClient,
+    required this.wsClientFactory,
+    this.authStorage,
+    this.initialBackendUrl = 'http://localhost:3000',
+    this.initialApiKey = '',
+    this.onSettingsChanged,
+  });
+
+  final TuringApi apiClient;
+  final TuringEventSource Function() wsClientFactory;
+  final ClientAuthStorage? authStorage;
+  final String initialBackendUrl;
+  final String initialApiKey;
+  final VoidCallback? onSettingsChanged;
 
   @override
   State<ResponsiveShell> createState() => _ResponsiveShellState();
@@ -12,19 +31,6 @@ class ResponsiveShell extends StatefulWidget {
 
 class _ResponsiveShellState extends State<ResponsiveShell> {
   int _selectedIndex = 0;
-
-  // Placeholder Screens
-  final List<Widget> _screens = [
-    const ChatScreen(),
-    const Center(
-      child: Text("IoT Devices Dashboard", style: TextStyle(fontSize: 20)),
-    ),
-    const Center(child: Text("Stats & Usage", style: TextStyle(fontSize: 20))),
-    const Center(
-      child: Text("Integrations Status", style: TextStyle(fontSize: 20)),
-    ),
-    const Center(child: Text("Settings", style: TextStyle(fontSize: 20))),
-  ];
 
   void _onItemTapped(int index) {
     setState(() {
@@ -158,10 +164,45 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
           if (isDesktop) const VerticalDivider(thickness: 1, width: 1),
 
           // Main Content
-          Expanded(child: _screens[_selectedIndex]),
+          Expanded(child: _buildSelectedScreen()),
         ],
       ),
     );
+  }
+
+  Widget _buildSelectedScreen() {
+    return switch (_selectedIndex) {
+      0 => SessionListScreen(
+        apiClient: widget.apiClient,
+        wsClientFactory: widget.wsClientFactory,
+        embedded: true,
+      ),
+      1 => const Center(
+        child: Text("IoT Devices Dashboard", style: TextStyle(fontSize: 20)),
+      ),
+      2 => const Center(
+        child: Text("Stats & Usage", style: TextStyle(fontSize: 20)),
+      ),
+      3 => const Center(
+        child: Text("Integrations Status", style: TextStyle(fontSize: 20)),
+      ),
+      4 =>
+        widget.authStorage == null
+            ? const Center(
+                child: Text(
+                  "Settings unavailable",
+                  style: TextStyle(fontSize: 20),
+                ),
+              )
+            : SettingsScreen(
+                authStorage: widget.authStorage!,
+                initialBackendUrl: widget.initialBackendUrl,
+                initialApiKey: widget.initialApiKey,
+                onSaved: widget.onSettingsChanged,
+                embedded: true,
+              ),
+      _ => const SizedBox.shrink(),
+    };
   }
 
   // FIXED: Using AppColors.menuSelectedLight/Dark

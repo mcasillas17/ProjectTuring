@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'constants/app_colors.dart';
-import 'features/sessions/session_list_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'logic/theme_logic.dart';
 import 'networking/api_client.dart';
 import 'networking/auth_storage.dart';
 import 'networking/ws_client.dart';
+import 'ui/shell/responsive_shell.dart';
 
 class TuringApp extends StatefulWidget {
   const TuringApp({super.key, this.authStorage = const AuthStorage()});
@@ -62,7 +62,7 @@ class _TuringAppState extends State<TuringApp> {
                 baseUrl: config.backendUrl,
                 apiKey: config.apiKey,
               );
-              return SessionListScreen(
+              return ResponsiveShell(
                 apiClient: apiClient,
                 authStorage: widget.authStorage,
                 initialBackendUrl: config.backendUrl,
@@ -101,6 +101,14 @@ class _TuringAppState extends State<TuringApp> {
       scaffoldBackgroundColor: isDark
           ? AppColors.darkBackground
           : AppColors.lightBackground,
+      drawerTheme: DrawerThemeData(
+        backgroundColor: isDark
+            ? AppColors.darkSurface
+            : AppColors.lightSurface,
+        surfaceTintColor: isDark
+            ? AppColors.darkSurface
+            : AppColors.lightSurface,
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: isDark
             ? AppColors.darkSurface
@@ -108,10 +116,48 @@ class _TuringAppState extends State<TuringApp> {
         foregroundColor: isDark ? AppColors.darkText : AppColors.lightText,
         elevation: isDark ? 0 : 0.5,
       ),
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: isDark
+            ? AppColors.darkSurface
+            : AppColors.lightSurface,
+        selectedIconTheme: IconThemeData(
+          color: isDark
+              ? AppColors.menuSelectedDark
+              : AppColors.menuSelectedLight,
+        ),
+        selectedLabelTextStyle: TextStyle(
+          color: isDark
+              ? AppColors.menuSelectedDark
+              : AppColors.menuSelectedLight,
+          fontWeight: FontWeight.bold,
+        ),
+        unselectedIconTheme: const IconThemeData(color: Colors.grey),
+        indicatorColor: isDark ? AppColors.accentBlue : const Color(0xFFE3F2FD),
+      ),
       cardTheme: CardThemeData(
         color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: AppColors.electricBlue,
+        foregroundColor: Colors.white,
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return AppColors.electricBlue;
+          }
+          return isDark ? Colors.grey : null;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return isDark
+                ? AppColors.accentBlue
+                : AppColors.electricBlue.withValues(alpha: 0.5);
+          }
+          return isDark ? Colors.grey[800] : null;
+        }),
       ),
     );
   }
