@@ -47,6 +47,7 @@ export type OrchestratorConfig = {
 function intFromEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
   const raw = env[name];
   if (!raw) return fallback;
+  if (!/^\d+$/.test(raw)) throw new Error(`Invalid integer env var ${name}`);
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) throw new Error(`Invalid integer env var ${name}`);
   return parsed;

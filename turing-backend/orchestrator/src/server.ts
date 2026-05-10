@@ -8,7 +8,7 @@ const config = loadConfig();
 const logger = createLogger(config.logLevel);
 
 export async function buildPublicServer() {
-  const app = Fastify({ logger, genReqId: () => crypto.randomUUID() });
+  const app = Fastify({ loggerInstance: logger, genReqId: () => crypto.randomUUID() });
   await app.register(websocket);
 
   app.get("/health", async () => ({ ok: true }));
@@ -23,7 +23,7 @@ export async function buildPublicServer() {
 }
 
 export async function buildInternalServer() {
-  const app = Fastify({ logger, genReqId: () => crypto.randomUUID() });
+  const app = Fastify({ loggerInstance: logger, genReqId: () => crypto.randomUUID() });
   app.addHook("preHandler", requireBearer(config.internalToken));
   app.get("/internal/health", async () => ({ ok: true }));
   return app;
