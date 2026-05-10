@@ -1,0 +1,236 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:turing_flutter_app/features/chat/chat_screen.dart';
+import 'package:turing_flutter_app/models/message.dart';
+import 'package:turing_flutter_app/models/session.dart';
+import 'package:turing_flutter_app/models/turing_event.dart';
+import 'package:turing_flutter_app/networking/api_client.dart';
+import 'package:turing_flutter_app/networking/ws_client.dart';
+
+void main() {
+  testWidgets('chat streams message deltas into one assistant bubble', (
+    tester,
+  ) async {
+    final events = StreamController<TuringEvent>(sync: true);
+    final apiClient = _FakeApiClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          sessionId: 'sess_1',
+          apiClient: apiClient,
+          wsClient: _FakeWsClient(events.stream),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    events.add(
+      _event(
+        type: 'message.delta',
+        sequence: 1,
+        payload: {'messageId': 'msg_asst', 'delta': 'Hel'},
+      ),
+    );
+    await tester.pump();
+    events.add(
+      _event(
+        type: 'message.delta',
+        sequence: 2,
+        payload: {'messageId': 'msg_asst', 'delta': 'lo'},
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Hello'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    unawaited(events.close());
+  });
+
+  testWidgets('chat sends selected provider through REST', (tester) async {
+    final events = StreamController<TuringEvent>(sync: true);
+    final apiClient = _FakeApiClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          sessionId: 'sess_1',
+          apiClient: apiClient,
+          wsClient: _FakeWsClient(events.stream),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byType(DropdownButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OpenAI-compatible').last);
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField), 'Use cloud model');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+
+    expect(apiClient.lastSentContent, 'Use cloud model');
+    expect(apiClient.lastModelProvider, 'openai_compatible');
+    await tester.pumpWidget(const SizedBox.shrink());
+    unawaited(events.close());
+  });
+
+  testWidgets('approval cards appear and clear from approval events', (
+    tester,
+  ) async {
+    final events = StreamController<TuringEvent>(sync: true);
+    final apiClient = _FakeApiClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          sessionId: 'sess_1',
+          apiClient: apiClient,
+          wsClient: _FakeWsClient(events.stream),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    events.add(
+      _event(
+        type: 'approval.requested',
+        sequence: 1,
+        payload: {
+          'approvalId': 'appr_1',
+          'toolName': 'files.update',
+          'argsSummary': 'Update note.txt',
+        },
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Approval requested: files.update'), findsOneWidget);
+    expect(find.text('Update note.txt'), findsOneWidget);
+
+    events.add(
+      _event(
+        type: 'approval.consumed',
+        sequence: 2,
+        payload: {'approvalId': 'appr_1'},
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Approval requested: files.update'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    unawaited(events.close());
+  });
+}
+
+TuringEvent _event({
+  required String type,
+  required int sequence,
+  required Map<String, dynamic> payload,
+}) {
+  return TuringEvent(
+    eventId: 'evt_$sequence',
+    sessionId: 'sess_1',
+    runId: 'run_1',
+    traceId: 'trace_1',
+    sequence: sequence,
+    type: type,
+    createdAt: DateTime.parse('2026-05-10T00:00:00.000Z'),
+    payload: payload,
+  );
+}
+
+class _FakeApiClient implements TuringApi {
+  String? lastSentContent;
+  String? lastModelProvider;
+
+  @override
+  Future<Map<String, dynamic>> approveApproval(
+    String approvalId, {
+    String? comment,
+  }) async {
+    return {'approvalId': approvalId, 'status': 'approved'};
+  }
+
+  @override
+  Future<Map<String, dynamic>> createSession({String? title}) async {
+    return {'sessionId': 'sess_1', 'createdAt': '2026-05-10T00:00:00.000Z'};
+  }
+
+  @override
+  Future<Map<String, dynamic>> denyApproval(
+    String approvalId, {
+    String? reason,
+  }) async {
+    return {'approvalId': approvalId, 'status': 'denied'};
+  }
+
+  @override
+  Future<Map<String, dynamic>> getConfig() async {
+    return {
+      'enabledProviders': ['ollama'],
+    };
+  }
+
+  @override
+  Future<List<TuringEvent>> listEvents({
+    required String sessionId,
+    int? after,
+    int limit = 500,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<List<Message>> listMessages({
+    required String sessionId,
+    int limit = 50,
+    String? before,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<List<Session>> listSessions({int limit = 50, String? after}) async {
+    return const [];
+  }
+
+  @override
+  Future<Map<String, dynamic>> sendMessage({
+    required String sessionId,
+    required String content,
+    String modelProvider = 'ollama',
+  }) async {
+    lastSentContent = content;
+    lastModelProvider = modelProvider;
+    return {
+      'sessionId': sessionId,
+      'userMessageId': 'msg_user',
+      'assistantMessageId': 'msg_asst',
+      'runId': 'run_1',
+      'jobId': 'job_1',
+      'traceId': 'trace_1',
+      'status': 'queued',
+    };
+  }
+}
+
+class _FakeWsClient implements TuringEventSource {
+  _FakeWsClient(this._events);
+
+  final Stream<TuringEvent> _events;
+  bool closed = false;
+
+  @override
+  Stream<TuringEvent> connect({required String sessionId, int? lastSequence}) =>
+      _events;
+
+  @override
+  void close() {
+    closed = true;
+  }
+}

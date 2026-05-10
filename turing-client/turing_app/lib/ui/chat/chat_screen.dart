@@ -13,13 +13,13 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  
+
   // Dummy data to test the UI immediately
   final List<ChatMessage> _messages = [
     ChatMessage(
-      id: '1', 
-      isUser: false, 
-      text: "Hello Miguel. Systems are online. How can I help?"
+      id: '1',
+      isUser: false,
+      text: "Hello Miguel. Systems are online. How can I help?",
     ),
   ];
 
@@ -29,19 +29,19 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       // 1. Add User Message
-      _messages.add(ChatMessage(
-        id: DateTime.now().toString(),
-        isUser: true,
-        text: text,
-      ));
+      _messages.add(
+        ChatMessage(id: DateTime.now().toString(), isUser: true, text: text),
+      );
 
       // 2. Simulate Turing "Thinking"
-      _messages.add(ChatMessage(
-        id: 'loading',
-        isUser: false,
-        text: '',
-        type: MessageType.loading,
-      ));
+      _messages.add(
+        ChatMessage(
+          id: 'loading',
+          isUser: false,
+          text: '',
+          type: MessageType.loading,
+        ),
+      );
     });
 
     _controller.clear();
@@ -52,21 +52,25 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       setState(() {
         _messages.removeWhere((m) => m.type == MessageType.loading);
-        
+
         // Example of a Rich Response
         if (text.toLowerCase().contains("light")) {
-           _messages.add(ChatMessage(
-            id: DateTime.now().toString(),
-            isUser: false,
-            text: "I've updated the device status.",
-            type: MessageType.deviceStatus, // <--- RICH WIDGET
-          ));
+          _messages.add(
+            ChatMessage(
+              id: DateTime.now().toString(),
+              isUser: false,
+              text: "I've updated the device status.",
+              type: MessageType.deviceStatus, // <--- RICH WIDGET
+            ),
+          );
         } else {
-          _messages.add(ChatMessage(
-            id: DateTime.now().toString(),
-            isUser: false,
-            text: "I received: $text",
-          ));
+          _messages.add(
+            ChatMessage(
+              id: DateTime.now().toString(),
+              isUser: false,
+              text: "I received: $text",
+            ),
+          );
         }
       });
       _scrollToBottom();
@@ -116,19 +120,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   decoration: InputDecoration(
                     hintText: "Ask Turing...",
                     filled: true,
-                    fillColor: Theme.of(context).brightness == Brightness.dark 
-                        ? Colors.grey[800] 
+                    fillColor: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.grey[800]
                         : Colors.grey[200],
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(24),
                       borderSide: BorderSide.none,
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              
+
               // Send Button
               FloatingActionButton(
                 onPressed: _sendMessage,
