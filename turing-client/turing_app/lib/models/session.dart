@@ -13,7 +13,9 @@ class Session {
     return Session(
       sessionId: (json['sessionId'] ?? json['id']) as String,
       title: json['title'] as String?,
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      updatedAt: DateTime.parse(
+        (json['updatedAt'] ?? json['createdAt']) as String,
+      ),
     );
   }
 }

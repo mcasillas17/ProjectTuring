@@ -6,7 +6,43 @@ import '../models/message.dart';
 import '../models/session.dart';
 import '../models/turing_event.dart';
 
-class TuringApiClient {
+abstract class TuringApi {
+  Future<Map<String, dynamic>> getConfig();
+
+  Future<Map<String, dynamic>> createSession({String? title});
+
+  Future<List<Session>> listSessions({int limit = 50, String? after});
+
+  Future<List<Message>> listMessages({
+    required String sessionId,
+    int limit = 50,
+    String? before,
+  });
+
+  Future<List<TuringEvent>> listEvents({
+    required String sessionId,
+    int? after,
+    int limit = 500,
+  });
+
+  Future<Map<String, dynamic>> sendMessage({
+    required String sessionId,
+    required String content,
+    String modelProvider = 'ollama',
+  });
+
+  Future<Map<String, dynamic>> approveApproval(
+    String approvalId, {
+    String? comment,
+  });
+
+  Future<Map<String, dynamic>> denyApproval(
+    String approvalId, {
+    String? reason,
+  });
+}
+
+class TuringApiClient implements TuringApi {
   TuringApiClient({
     required this.baseUrl,
     required this.apiKey,
@@ -22,6 +58,7 @@ class TuringApiClient {
     'content-type': 'application/json',
   };
 
+  @override
   Future<Map<String, dynamic>> getConfig() async {
     final response = await _httpClient.get(
       _uri('/api/config'),
@@ -30,6 +67,7 @@ class TuringApiClient {
     return _decodeMap(response);
   }
 
+  @override
   Future<Map<String, dynamic>> createSession({String? title}) async {
     final response = await _httpClient.post(
       _uri('/api/sessions'),
@@ -39,6 +77,7 @@ class TuringApiClient {
     return _decodeMap(response);
   }
 
+  @override
   Future<List<Session>> listSessions({int limit = 50, String? after}) async {
     final response = await _httpClient.get(
       _uri('/api/sessions', {
@@ -53,6 +92,7 @@ class TuringApiClient {
         .toList();
   }
 
+  @override
   Future<List<Message>> listMessages({
     required String sessionId,
     int limit = 50,
@@ -71,6 +111,7 @@ class TuringApiClient {
         .toList();
   }
 
+  @override
   Future<List<TuringEvent>> listEvents({
     required String sessionId,
     int? after,
@@ -92,6 +133,7 @@ class TuringApiClient {
         .toList();
   }
 
+  @override
   Future<Map<String, dynamic>> sendMessage({
     required String sessionId,
     required String content,
@@ -105,6 +147,7 @@ class TuringApiClient {
     return _decodeMap(response);
   }
 
+  @override
   Future<Map<String, dynamic>> approveApproval(
     String approvalId, {
     String? comment,
@@ -117,6 +160,7 @@ class TuringApiClient {
     return _decodeMap(response);
   }
 
+  @override
   Future<Map<String, dynamic>> denyApproval(
     String approvalId, {
     String? reason,

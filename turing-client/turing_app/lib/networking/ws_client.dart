@@ -4,7 +4,13 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/turing_event.dart';
 
-class TuringWsClient {
+abstract class TuringEventSource {
+  Stream<TuringEvent> connect({required String sessionId, int? lastSequence});
+
+  void close();
+}
+
+class TuringWsClient implements TuringEventSource {
   TuringWsClient({
     required this.baseUrl,
     required this.apiKey,
@@ -16,6 +22,7 @@ class TuringWsClient {
   final WebSocketChannel Function(Uri uri) _connect;
   WebSocketChannel? _channel;
 
+  @override
   Stream<TuringEvent> connect({required String sessionId, int? lastSequence}) {
     _channel = _connect(_wsUri());
     _channel!.sink.add(
@@ -44,6 +51,7 @@ class TuringWsClient {
     });
   }
 
+  @override
   void close() => _channel?.sink.close();
 
   Uri _wsUri() {

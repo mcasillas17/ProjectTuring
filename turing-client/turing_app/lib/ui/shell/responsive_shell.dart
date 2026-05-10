@@ -16,9 +16,13 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
   // Placeholder Screens
   final List<Widget> _screens = [
     const ChatScreen(),
-    const Center(child: Text("IoT Devices Dashboard", style: TextStyle(fontSize: 20))),
+    const Center(
+      child: Text("IoT Devices Dashboard", style: TextStyle(fontSize: 20)),
+    ),
     const Center(child: Text("Stats & Usage", style: TextStyle(fontSize: 20))),
-    const Center(child: Text("Integrations Status", style: TextStyle(fontSize: 20))),
+    const Center(
+      child: Text("Integrations Status", style: TextStyle(fontSize: 20)),
+    ),
     const Center(child: Text("Settings", style: TextStyle(fontSize: 20))),
   ];
 
@@ -32,17 +36,13 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
     final isDesktop = width > 800;
-    
+
     // Grab the primary color for highlights
     final primaryColor = Theme.of(context).primaryColor;
 
     return Scaffold(
       // --- MOBILE TOP BAR ---
-      appBar: isDesktop
-          ? null
-          : AppBar(
-              title: const Text("Project Turing"),
-            ),
+      appBar: isDesktop ? null : AppBar(title: const Text("Project Turing")),
 
       // --- MOBILE DRAWER ---
       drawer: isDesktop
@@ -60,26 +60,33 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
                       children: [
                         const Text(
                           "Turing OS",
-                          style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(height: 10),
                         // Mobile Theme Toggle
                         Row(
                           children: [
-                            const Text("Dark Mode", style: TextStyle(color: Colors.white70)),
+                            const Text(
+                              "Dark Mode",
+                              style: TextStyle(color: Colors.white70),
+                            ),
                             const Spacer(),
                             Switch(
                               value: ThemeLogic().isDark,
-                              activeColor: Colors.white,
+                              activeThumbColor: Colors.white,
                               activeTrackColor: Colors.white24,
                               onChanged: (val) => ThemeLogic().toggleTheme(val),
                             ),
                           ],
-                        )
+                        ),
                       ],
                     ),
                   ),
-                  
+
                   // Menu Items
                   _buildMobileNavItem(Icons.chat_bubble, "Chat", 0),
                   _buildMobileNavItem(Icons.smart_toy, "Devices", 1),
@@ -109,7 +116,11 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 20),
                     child: IconButton(
-                      icon: Icon(ThemeLogic().isDark ? Icons.light_mode : Icons.dark_mode),
+                      icon: Icon(
+                        ThemeLogic().isDark
+                            ? Icons.light_mode
+                            : Icons.dark_mode,
+                      ),
                       tooltip: "Toggle Theme",
                       onPressed: () {
                         ThemeLogic().toggleTheme(!ThemeLogic().isDark);
@@ -159,16 +170,16 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Pick the specific color based on the theme
-    final selectedTextColor = isDark 
-        ? AppColors.menuSelectedDark 
+    final selectedTextColor = isDark
+        ? AppColors.menuSelectedDark
         : AppColors.menuSelectedLight;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         // Solid background to look like a button
-        color: isSelected 
-            ? (isDark ? Colors.grey[800] : Colors.grey[200]) 
+        color: isSelected
+            ? (isDark ? Colors.grey[800] : Colors.grey[200])
             : null,
         borderRadius: BorderRadius.circular(8),
       ),
@@ -182,9 +193,7 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
         title: Text(
           label,
           style: TextStyle(
-            color: isSelected 
-                ? selectedTextColor 
-                : Colors.grey,
+            color: isSelected ? selectedTextColor : Colors.grey,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
         ),
