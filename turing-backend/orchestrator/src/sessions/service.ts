@@ -66,11 +66,11 @@ export function createSessionsService(db: TuringDatabase) {
       const jobId = id("job");
       const traceId = id("trace");
 
-      const sequenceRow = db
-        .prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM messages WHERE session_id = ?")
-        .get(input.sessionId) as SequenceRow;
-
       const tx = db.transaction(() => {
+        const sequenceRow = db
+          .prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM messages WHERE session_id = ?")
+          .get(input.sessionId) as SequenceRow;
+
         db.prepare("INSERT INTO messages (id, session_id, role, content, content_type, sequence, created_at) VALUES (?, ?, 'user', ?, 'text', ?, ?)").run(
           userMessageId,
           input.sessionId,

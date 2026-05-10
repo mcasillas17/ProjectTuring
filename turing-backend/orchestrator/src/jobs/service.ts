@@ -23,33 +23,52 @@ type QueuedJobPayload = {
 
 type StaleJobRow = { id: string; run_id: string; attempt: number };
 
+class JobClaimConflictError extends Error {}
+
+function toAgentJob(row: JobRow, agentId: AgentId): AgentJob {
+  const payload = parseJson<QueuedJobPayload>(row.payload_json);
+  return {
+    jobId: row.id,
+    runId: row.run_id,
+    sessionId: payload.sessionId,
+    userMessageId: payload.userMessageId,
+    assistantMessageId: payload.assistantMessageId,
+    agentId,
+    traceId: payload.traceId,
+    modelProvider: payload.modelProvider,
+    model: payload.model,
+    payload: { userText: payload.userText },
+    attempt: row.attempt
+  };
+}
+
 export function createJobsService(db: TuringDatabase, config: { jobTimeoutMs: number; maxAttempts: number }) {
   return {
     claimNext(agentId: AgentId): AgentJob | undefined {
-      const row = db
-        .prepare("SELECT * FROM jobs WHERE agent_id = ? AND status = 'pending' ORDER BY created_at LIMIT 1")
-        .get(agentId) as JobRow | undefined;
-      if (!row) return undefined;
+      const claim = db.transaction((): AgentJob | undefined => {
+        const row = db
+          .prepare(
+            "SELECT jobs.* FROM jobs JOIN agent_runs ON agent_runs.id = jobs.run_id WHERE jobs.agent_id = ? AND jobs.status = 'pending' AND agent_runs.status = 'queued' ORDER BY jobs.created_at LIMIT 1"
+          )
+          .get(agentId) as JobRow | undefined;
+        if (!row) return undefined;
 
-      const pickedUpAt = new Date().toISOString();
-      const updated = db.prepare("UPDATE jobs SET status = 'in_progress', picked_up_at = ? WHERE id = ? AND status = 'pending'").run(pickedUpAt, row.id);
-      if (updated.changes !== 1) return undefined;
-      db.prepare("UPDATE agent_runs SET status = 'running', started_at = ? WHERE id = ? AND status = 'queued'").run(pickedUpAt, row.run_id);
+        const pickedUpAt = new Date().toISOString();
+        const updatedJob = db.prepare("UPDATE jobs SET status = 'in_progress', picked_up_at = ? WHERE id = ? AND status = 'pending'").run(pickedUpAt, row.id);
+        if (updatedJob.changes !== 1) return undefined;
 
-      const payload = parseJson<QueuedJobPayload>(row.payload_json);
-      return {
-        jobId: row.id,
-        runId: row.run_id,
-        sessionId: payload.sessionId,
-        userMessageId: payload.userMessageId,
-        assistantMessageId: payload.assistantMessageId,
-        agentId,
-        traceId: payload.traceId,
-        modelProvider: payload.modelProvider,
-        model: payload.model,
-        payload: { userText: payload.userText },
-        attempt: row.attempt
-      };
+        const updatedRun = db.prepare("UPDATE agent_runs SET status = 'running', started_at = ? WHERE id = ? AND status = 'queued'").run(pickedUpAt, row.run_id);
+        if (updatedRun.changes !== 1) throw new JobClaimConflictError("Run was not claimable");
+
+        return toAgentJob(row, agentId);
+      });
+
+      try {
+        return claim();
+      } catch (error) {
+        if (error instanceof JobClaimConflictError) return undefined;
+        throw error;
+      }
     },
 
     reapStaleJobs(): number {

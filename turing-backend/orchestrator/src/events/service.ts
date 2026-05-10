@@ -31,24 +31,28 @@ function toEvent(row: EventRow): TuringEvent {
 export function createEventsService(db: TuringDatabase) {
   return {
     append(input: TuringEventInput): TuringEvent {
-      const row = db.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM events WHERE session_id = ?").get(input.sessionId) as SequenceRow;
-      const event: TuringEvent = {
-        eventId: `evt_${ulid()}`,
-        sequence: row.next,
-        createdAt: input.createdAt ?? new Date().toISOString(),
-        ...input
-      };
-      db.prepare("INSERT INTO events (id, session_id, run_id, trace_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
-        event.eventId,
-        event.sessionId,
-        event.runId ?? null,
-        event.traceId,
-        event.sequence,
-        event.type,
-        JSON.stringify(event.payload),
-        event.createdAt
-      );
-      return event;
+      const tx = db.transaction((): TuringEvent => {
+        const row = db.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM events WHERE session_id = ?").get(input.sessionId) as SequenceRow;
+        const event: TuringEvent = {
+          eventId: `evt_${ulid()}`,
+          sequence: row.next,
+          createdAt: input.createdAt ?? new Date().toISOString(),
+          ...input
+        };
+        db.prepare("INSERT INTO events (id, session_id, run_id, trace_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+          event.eventId,
+          event.sessionId,
+          event.runId ?? null,
+          event.traceId,
+          event.sequence,
+          event.type,
+          JSON.stringify(event.payload),
+          event.createdAt
+        );
+        return event;
+      });
+
+      return tx();
     },
 
     replay(sessionId: string, afterSequence: number): TuringEvent[] {
