@@ -1,28 +1,23 @@
-# Stage 1: Build the TypeScript code
-FROM node:20-alpine AS builder
-WORKDIR /app
-
-# Copy dependency definitions
+FROM node:20-alpine AS deps
+WORKDIR /repo
 COPY package*.json ./
+COPY shared-types/package.json shared-types/package.json
+COPY orchestrator/package.json orchestrator/package.json
 RUN npm install
 
-# Copy source code and build
-COPY . .
-# Assumes you have a "build" script in package.json (tsc)
-RUN npm run build
+FROM deps AS builder
+COPY tsconfig.base.json ./
+COPY shared-types shared-types
+COPY orchestrator orchestrator
+RUN npm run build -w @turing/shared-types && npm run build -w @turing/orchestrator
 
-# Stage 2: Run the production app (Smaller image)
 FROM node:20-alpine
 WORKDIR /app
-
-COPY package*.json ./
-RUN npm install --production
-
-# Copy built JS files from the builder stage
-COPY --from=builder /app/dist ./dist
-
-# Expose the WebSocket port
-EXPOSE 3000
-
-# Start the Fastify server
+ENV NODE_ENV=production
+COPY --from=deps /repo/node_modules /app/node_modules
+COPY --from=builder /repo/shared-types/dist /app/shared-types/dist
+COPY --from=builder /repo/orchestrator/dist /app/dist
+COPY --from=builder /repo/orchestrator/migrations /app/migrations
+COPY orchestrator/package.json /app/package.json
+EXPOSE 3000 3001
 CMD ["node", "dist/server.js"]
