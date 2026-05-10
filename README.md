@@ -43,7 +43,7 @@ cd turing-backend
 
 1.  Navigate to the client directory:
     ```bash
-    cd turing-client/flutter_app
+    cd turing-client/turing_app
     ```
 2.  Install dependencies:
     ```bash
@@ -56,6 +56,8 @@ cd turing-backend
 4.  In the app's settings screen:
     - Set **Backend URL** to `http://localhost:3000` (or your Mac's LAN IP if running on a physical device).
     - Paste the **API Key** generated during the backend initialization.
+
+See the [Flutter client integration guide](turing-client/turing_app/README.md) for shell integration details, settings behavior, and current backend-dependent limitations.
 
 ### Documentation
 
