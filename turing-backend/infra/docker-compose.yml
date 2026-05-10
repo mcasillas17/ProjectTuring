@@ -1,0 +1,52 @@
+services:
+  turing-orchestrator:
+    build:
+      context: ..
+      dockerfile: orchestrator/Dockerfile
+    env_file: ../.env
+    ports:
+      - "${ORCHESTRATOR_PUBLIC_PORT:-3000}:3000"
+    expose:
+      - "3001"
+    volumes:
+      - ../data:/app/data
+    networks:
+      - net-system
+      - net-files
+
+  turing-agent-runtime-general:
+    build:
+      context: ..
+      dockerfile: agent-runtime/Dockerfile
+    env_file: ../.env
+    depends_on:
+      - turing-orchestrator
+      - turing-mcp-system
+      - turing-mcp-files
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - net-system
+      - net-files
+
+  turing-mcp-system:
+    build: ../mcp-system
+    env_file: ../.env
+    expose:
+      - "7100"
+    networks:
+      - net-system
+
+  turing-mcp-files:
+    build: ../mcp-files
+    env_file: ../.env
+    expose:
+      - "7110"
+    volumes:
+      - ../sandbox:/sandbox
+    networks:
+      - net-files
+
+networks:
+  net-system:
+  net-files:
