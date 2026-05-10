@@ -73,6 +73,8 @@ async function connectAndHello(lastSequence, waitForCompleted = false) {
 
     ws.on("error", (err) => {
       console.error("[WS] Connection error:", err);
+      clearTimeout(timeout);
+      ws.close();
       reject(err);
     });
   });
