@@ -24,6 +24,8 @@ type QueuedJobPayload = {
 type StaleJobRow = { id: string; run_id: string; attempt: number };
 
 class JobClaimConflictError extends Error {}
+class RunCompletionError extends Error {}
+class RunFailureError extends Error {}
 
 function toAgentJob(row: JobRow, agentId: AgentId): AgentJob {
   const payload = parseJson<QueuedJobPayload>(row.payload_json);
@@ -103,9 +105,14 @@ export function createJobsService(db: TuringDatabase, config: { jobTimeoutMs: nu
     completeRun(runId: string, assistantMessageId: string, content: string): void {
       const finishedAt = new Date().toISOString();
       const tx = db.transaction(() => {
-        db.prepare("UPDATE messages SET content = ? WHERE id = ?").run(content, assistantMessageId);
-        db.prepare("UPDATE agent_runs SET status = 'completed', finished_at = ? WHERE id = ?").run(finishedAt, runId);
-        db.prepare("UPDATE jobs SET status = 'completed', finished_at = ? WHERE run_id = ?").run(finishedAt, runId);
+        const updatedMessage = db.prepare("UPDATE messages SET content = ? WHERE id = ?").run(content, assistantMessageId);
+        if (updatedMessage.changes !== 1) throw new RunCompletionError("Assistant message was not updated");
+
+        const updatedRun = db.prepare("UPDATE agent_runs SET status = 'completed', finished_at = ? WHERE id = ?").run(finishedAt, runId);
+        if (updatedRun.changes !== 1) throw new RunCompletionError("Run was not completed");
+
+        const updatedJob = db.prepare("UPDATE jobs SET status = 'completed', finished_at = ? WHERE run_id = ?").run(finishedAt, runId);
+        if (updatedJob.changes !== 1) throw new RunCompletionError("Job was not completed");
       });
       tx();
     },
@@ -113,8 +120,21 @@ export function createJobsService(db: TuringDatabase, config: { jobTimeoutMs: nu
     failRun(runId: string, code: string, message: string): void {
       const finishedAt = new Date().toISOString();
       const tx = db.transaction(() => {
-        db.prepare("UPDATE agent_runs SET status = 'failed', error_code = ?, error_message = ?, finished_at = ? WHERE id = ?").run(code, message, finishedAt, runId);
-        db.prepare("UPDATE jobs SET status = 'failed', error_code = ?, error_message = ?, finished_at = ? WHERE run_id = ?").run(code, message, finishedAt, runId);
+        const updatedRun = db.prepare("UPDATE agent_runs SET status = 'failed', error_code = ?, error_message = ?, finished_at = ? WHERE id = ?").run(
+          code,
+          message,
+          finishedAt,
+          runId
+        );
+        if (updatedRun.changes !== 1) throw new RunFailureError("Run was not failed");
+
+        const updatedJob = db.prepare("UPDATE jobs SET status = 'failed', error_code = ?, error_message = ?, finished_at = ? WHERE run_id = ?").run(
+          code,
+          message,
+          finishedAt,
+          runId
+        );
+        if (updatedJob.changes !== 1) throw new RunFailureError("Job was not failed");
       });
       tx();
     }

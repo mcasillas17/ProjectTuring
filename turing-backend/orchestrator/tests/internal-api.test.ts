@@ -35,4 +35,25 @@ describe("internal API", () => {
     expect(event.statusCode).toBe(200);
     expect(event.json()).toMatchObject({ sequence: 2 });
   });
+
+  it("requires completed runs to update their own assistant message", async () => {
+    const { app, db } = await buildInternalServerForTest();
+    const seeded = seedQueuedJob(db);
+    const other = seedQueuedJob(db);
+    const headers = { authorization: "Bearer internal" };
+
+    await app.inject({ method: "GET", url: "/internal/jobs/next?agent=general_assistant", headers });
+    const response = await app.inject({
+      method: "POST",
+      url: `/internal/runs/${seeded.runId}/complete`,
+      headers,
+      payload: { assistantMessageId: other.assistantMessageId, content: "wrong message" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    const otherMessage = db.prepare("SELECT content FROM messages WHERE id = ?").get(other.assistantMessageId) as { content: string };
+    const run = db.prepare("SELECT status FROM agent_runs WHERE id = ?").get(seeded.runId) as { status: string };
+    expect(otherMessage.content).toBe("");
+    expect(run.status).toBe("running");
+  });
 });

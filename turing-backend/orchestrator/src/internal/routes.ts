@@ -201,6 +201,7 @@ export async function registerInternalRoutes<
 
     const run = getRunContext(deps.db, request.params.runId);
     if (!run) return notFound(reply, request.id, "run_not_found", "Run not found");
+    if (request.body.assistantMessageId !== run.assistant_message_id) return badRequest(reply, request.id, "assistantMessageId does not match run");
 
     jobs.completeRun(request.params.runId, request.body.assistantMessageId, request.body.content);
     const completed = events.append({
