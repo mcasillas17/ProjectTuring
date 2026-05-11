@@ -14,6 +14,7 @@ import { createAuditService } from "../audit/service.js";
 import { createEventsService } from "../events/service.js";
 import { createJobsService, RunStateConflictError } from "../jobs/service.js";
 import { createSessionsService } from "../sessions/service.js";
+import { getToolPolicy } from "../tools/policy.js";
 
 type BroadcastHub = { broadcast(event: TuringEvent): void };
 type RegisterInternalRoutesDeps = { db: TuringDatabase; config: OrchestratorConfig; hub?: BroadcastHub };
@@ -30,7 +31,6 @@ type BeforeToolDecision =
   | Extract<ToolPolicyDecision, { decision: "deny" }>;
 
 const GENERAL_ASSISTANT: AgentId = "general_assistant";
-const SAFE_SYSTEM_TOOLS = new Set(["system.health", "system.time", "system.echo", "system.info"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -110,13 +110,15 @@ function argsHash(argsJson: string) {
 }
 
 function beforeToolDecision(beacon: ToolCallBeacon): BeforeToolDecision {
-  if (beacon.serverName === "system" && SAFE_SYSTEM_TOOLS.has(beacon.toolName)) {
-    return { decision: "allow", toolCallId: beacon.toolCallId };
+  const policy = getToolPolicy(beacon.toolName);
+  if (policy === undefined) {
+    return { decision: "deny", toolCallId: beacon.toolCallId, reason: `Unknown tool ${beacon.serverName}.${beacon.toolName}` };
   }
-  if (beacon.serverName === "files") {
-    return { decision: "deny", toolCallId: beacon.toolCallId, reason: "Tool requires approval; approvals are not available yet" };
-  }
-  return { decision: "deny", toolCallId: beacon.toolCallId, reason: `Unknown tool ${beacon.serverName}.${beacon.toolName}` };
+  if (policy === "safe") return { decision: "allow", toolCallId: beacon.toolCallId };
+  if (policy === "disabled") return { decision: "deny", toolCallId: beacon.toolCallId, reason: "policy_denied" };
+  // Approval-required: Task 13 will replace this fail-closed branch with the
+  // real approval creation + polling flow.
+  return { decision: "deny", toolCallId: beacon.toolCallId, reason: "approval_required" };
 }
 
 export async function registerInternalRoutes<
