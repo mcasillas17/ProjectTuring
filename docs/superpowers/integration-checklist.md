@@ -1,37 +1,53 @@
 # Project Turing v1.0 Integration Checklist
 
-Use this checklist to validate the integration of Tasks 1-15 as they are merged.
+Use this checklist to validate the integration of Tasks 1-16 as they are merged into `pturing-v1-base`.
 
 ## 1. Foundation (Task 1-2)
-- [ ] `turing-backend/scripts/init.sh` exists and generates `.env`.
-- [ ] `turing-backend/infra/docker-compose.yml` exists and uses the new service names.
-- [ ] `turing-backend/shared-types` exists and `npm run build` succeeds.
-- [ ] `turing-client/flutter_app` is the new home of the Flutter client.
+- [ ] `turing-backend/scripts/init.sh` exists and generates a valid `.env` with random secrets.
+- [ ] `turing-backend/scripts/dev.sh` exists and starts the local v1 backend stack.
+- [ ] `turing-backend/infra/docker-compose.yml` exists after backend foundation integration, is valid (`docker compose -f infra/docker-compose.yml config --quiet`), and defines the core services.
+- [ ] `turing-backend/shared-types` exists and `npm run build` generates `dist/` with valid type declarations.
+- [ ] `turing-client/turing_app` contains the preserved Flutter shell and backend-connected client surfaces.
 
 ## 2. Orchestrator (Task 3-6)
-- [ ] `turing-orchestrator` starts and listens on 3000 (public) and 3001 (internal).
-- [ ] SQLite migrations apply on startup (`data/turing.db` created).
-- [ ] `GET /health` and `GET /api/config` work with `TURING_CLIENT_API_KEY`.
-- [ ] Internal API can claim jobs and post events.
+- [ ] `turing-orchestrator` container builds and starts without immediate crash.
+- [ ] Orchestrator logs show "WAL mode" and migration application for `0001_initial.sql`.
+- [ ] `GET /health` returns `{ ok: true }`.
+- [ ] `POST /api/sessions` requires valid `Bearer` auth and persists to SQLite.
+- [ ] Internal port 3001 is reachable from other containers but NOT published to host.
 
 ## 3. Agent Runtime & Streaming (Task 7-10)
-- [ ] `turing-agent-runtime-general` starts and connects to orchestrator.
-- [ ] Sending a message to `/api/sessions/:id/messages` triggers a job.
-- [ ] WebSocket `/ws` streams live events (e.g., `message.delta`).
-- [ ] Event replay via `lastSequence` works on reconnect.
+- [ ] `turing-agent-runtime-general` container logs show successful job polling from orchestrator.
+- [ ] Enqueuing a message results in an `agent_runs` entry with status `running`.
+- [ ] WebSocket connection remains open during agent execution.
+- [ ] `message.delta` events contain cumulative text chunks that match the model output.
+- [ ] Replay handshake (`hello` with `lastSequence`) correctly serves missed events from the database.
 
 ## 4. MCP & Tools (Task 11-14)
-- [ ] `turing-mcp-system` and `turing-mcp-files` are running and reachable by agent runtime.
-- [ ] Safe tools (e.g., `system.time`) work without user approval.
-- [ ] Sensitive tools (e.g., `files.create`) trigger `approval.requested` event.
-- [ ] Audit logs and tool-call records are created for every MCP call.
+- [ ] MCP servers (`system` and `files`) validate the per-agent bearer token.
+- [ ] Files MCP correctly rejects path traversal (e.g., `../../etc/passwd`).
+- [ ] Safe tools complete successfully and emit `tool.call.completed`.
+- [ ] Approval-required tools (e.g., `files.update`) block execution and emit `approval.requested`.
+- [ ] Orchestrator signs a valid HS256 JWT for approved tools.
+- [ ] `audit_logs` table contains entries for `auth.failed`, `tool.call.before`, and `tool.call.after`.
 
 ## 5. Flutter Client (Task 15)
-- [ ] App starts at settings if no API key is set.
-- [ ] Chat screen displays live streaming bubbles.
-- [ ] Approval cards appear for approval-required tools.
-- [ ] Tapping "Approve" allows the tool call to proceed.
+- [ ] Flutter-specific setup and behavior are documented in `turing-client/turing_app/README.md`.
+- [ ] The existing polished `ResponsiveShell` remains the main authenticated app surface.
+- [ ] The Chat and Settings tabs use backend-connected client surfaces once credentials are configured.
+- [ ] Devices, Stats, and Integrations remain placeholder tabs until their backend contracts are defined.
 
 ## 6. End-to-End (Task 16)
-- [ ] `turing-backend/scripts/smoke.sh` passes successfully in a clean environment.
-- [ ] `README.md` instructions are accurate and easy to follow.
+- [ ] `turing-backend/scripts/smoke.sh` passes 100% in a clean Docker environment.
+- [ ] All `README.md` setup steps result in a working system.
+- [ ] Verification scripts (`smoke-ws.mjs`) correctly handle network timeouts and retries.
+
+---
+
+## Verification Best Practices
+
+- **Log Monitoring**: During full backend smoke tests, keep a terminal open with `cd turing-backend && docker compose -f infra/docker-compose.yml logs -f`.
+- **Database Inspection**: Use `sqlite3 turing-backend/data/turing.db` to verify that tables are being populated as expected.
+- **Network Isolation**: Verify that `turing-agent-runtime-general` cannot reach MCP servers it is not authorized for by checking Docker network configurations.
+- **Ollama Mocking**: If Ollama is unavailable, verify that the runtime fails gracefully with a `model_unavailable` error code rather than an unhandled exception.
+- **Clean Starts**: Once backend reset tooling lands, frequently use `scripts/reset.sh` to ensure that migrations and initialization work from a zero-state.
