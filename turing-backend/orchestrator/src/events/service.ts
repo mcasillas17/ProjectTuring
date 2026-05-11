@@ -14,6 +14,9 @@ type EventRow = {
   payload_json: string;
   created_at: string;
 };
+type LatestSequenceRow = { latest: number };
+
+export const EVENT_REPLAY_LIMIT = 500;
 
 function toEvent(row: EventRow): TuringEvent {
   return {
@@ -57,9 +60,16 @@ export function createEventsService(db: TuringDatabase) {
 
     replay(sessionId: string, afterSequence: number): TuringEvent[] {
       const rows = db
-        .prepare("SELECT id, session_id, run_id, trace_id, sequence, type, payload_json, created_at FROM events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT 500")
-        .all(sessionId, afterSequence) as EventRow[];
+        .prepare(
+          "SELECT id, session_id, run_id, trace_id, sequence, type, payload_json, created_at FROM events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT ?"
+        )
+        .all(sessionId, afterSequence, EVENT_REPLAY_LIMIT) as EventRow[];
       return rows.map(toEvent);
+    },
+
+    latestSequence(sessionId: string): number {
+      const row = db.prepare("SELECT COALESCE(MAX(sequence), 0) AS latest FROM events WHERE session_id = ?").get(sessionId) as LatestSequenceRow;
+      return row.latest;
     }
   };
 }

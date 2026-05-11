@@ -88,6 +88,40 @@ describe("event replay", () => {
     }
   });
 
+  it("marks hello replay as requiring resync when the replay window is truncated", async () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    db.prepare("INSERT INTO sessions (id, created_at, updated_at) VALUES ('sess_1', 'now', 'now')").run();
+    const events = createEventsService(db);
+    for (let index = 1; index <= 501; index += 1) {
+      events.append({ sessionId: "sess_1", traceId: "trace_1", type: "system", payload: { index }, createdAt: `event_${index}` });
+    }
+    const app = await buildPublicServer({ db, config: testConfig, hub: createWsHub() });
+
+    try {
+      await app.ready();
+      const socket = await app.injectWS("/ws?token=tk_test");
+      const ack = new Promise<Record<string, unknown>>((resolve) => {
+        socket.once("message", (raw) => resolve(JSON.parse(raw.toString()) as Record<string, unknown>));
+      });
+
+      socket.send(JSON.stringify({ type: "hello", sessionId: "sess_1", lastSequence: 0 }));
+
+      const message = await ack;
+      expect(message).toMatchObject({
+        type: "hello_ack",
+        sessionId: "sess_1",
+        latestSequence: 501,
+        resyncRequired: true
+      });
+      expect(message.replayedEvents).toHaveLength(500);
+      socket.close();
+    } finally {
+      await app.close();
+      db.close();
+    }
+  });
+
   it("does not broadcast session events to clients before hello registration", () => {
     const hub = createWsHub();
     const sent: string[] = [];

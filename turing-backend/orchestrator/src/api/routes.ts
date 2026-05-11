@@ -74,9 +74,13 @@ export async function registerPublicRoutes<
   app.get<{ Params: { sessionId: string }; Querystring: { after?: string } }>("/api/sessions/:sessionId/events", async (request) => {
     const afterSequence = numberFromQuery(request.query.after, 0);
     const replayedEvents = events.replay(request.params.sessionId, afterSequence);
+    const latestSequence = Math.max(afterSequence, events.latestSequence(request.params.sessionId));
+    const lastReplayedSequence = replayedEvents.at(-1)?.sequence ?? afterSequence;
+    const resyncRequired = latestSequence > lastReplayedSequence;
     return {
       events: replayedEvents,
-      latestSequence: replayedEvents.at(-1)?.sequence ?? afterSequence
+      latestSequence,
+      ...(resyncRequired ? { resyncRequired: true } : {})
     };
   });
 

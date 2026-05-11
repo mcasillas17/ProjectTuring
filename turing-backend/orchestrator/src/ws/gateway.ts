@@ -115,12 +115,16 @@ export async function registerWebSocket<
         client.sessionId = message.sessionId;
         const afterSequence = message.lastSequence ?? 0;
         const replayedEvents = events.replay(message.sessionId, afterSequence);
+        const latestSequence = Math.max(afterSequence, events.latestSequence(message.sessionId));
+        const lastReplayedSequence = replayedEvents.at(-1)?.sequence ?? afterSequence;
+        const resyncRequired = latestSequence > lastReplayedSequence;
         socket.send(
           JSON.stringify({
             type: "hello_ack",
             sessionId: message.sessionId,
-            latestSequence: replayedEvents.at(-1)?.sequence ?? afterSequence,
-            replayedEvents
+            latestSequence,
+            replayedEvents,
+            ...(resyncRequired ? { resyncRequired: true } : {})
           })
         );
         return;
