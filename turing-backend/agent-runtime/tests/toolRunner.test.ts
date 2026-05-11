@@ -14,7 +14,8 @@ describe("runAuthorizedMcpTool", () => {
       toolName: "system.time",
       args: {},
       mcpClient,
-      postBeacon
+      postBeacon,
+      getApproval: async () => ({ approvalId: "appr_unused", status: "pending" as const })
     });
 
     expect(result).toEqual({ iso: "now" });

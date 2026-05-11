@@ -1,5 +1,6 @@
 import type { AgentJob, ToolCallBeacon, ToolPolicyDecision, TuringEventInput } from "@turing/shared-types";
 import type { RuntimeOrchestratorClient } from "../executor/jobLoop.js";
+import type { RuntimeApprovalState } from "../approvals/approvalPolling.js";
 
 type MessageRow = { role: "system" | "user" | "assistant" | "tool"; content: string };
 
@@ -39,6 +40,10 @@ export class OrchestratorClient implements RuntimeOrchestratorClient {
 
   postToolBeacon(runId: string, beacon: ToolCallBeacon): Promise<ToolPolicyDecision> {
     return this.request<ToolPolicyDecision>(`/runs/${runId}/audit/tool-call`, { method: "POST", body: JSON.stringify(beacon) });
+  }
+
+  getApproval(approvalId: string): Promise<RuntimeApprovalState> {
+    return this.request<RuntimeApprovalState>(`/approvals/${approvalId}`);
   }
 
   async completeRun(runId: string, assistantMessageId: string, content: string): Promise<void> {

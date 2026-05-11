@@ -1,5 +1,7 @@
 import { ulid } from "ulid";
 import type { ToolCallBeacon, ToolPolicyDecision } from "@turing/shared-types";
+import { authorizeToolCall } from "../audit/beacons.js";
+import type { RuntimeApprovalState } from "../approvals/approvalPolling.js";
 
 type McpToolClient = {
   callTool(name: string, args: Record<string, unknown>, approvalToken?: string): Promise<unknown>;
@@ -14,9 +16,10 @@ export async function runAuthorizedMcpTool(input: {
   args: Record<string, unknown>;
   mcpClient: McpToolClient;
   postBeacon: (beacon: ToolCallBeacon) => Promise<ToolPolicyDecision>;
+  getApproval: (approvalId: string) => Promise<RuntimeApprovalState>;
 }): Promise<unknown> {
   const toolCallId = `call_${ulid()}`;
-  const before = await input.postBeacon({
+  const authorization = await authorizeToolCall(input.postBeacon, input.getApproval, {
     phase: "before",
     toolCallId,
     agentId: input.agentId,
@@ -26,12 +29,9 @@ export async function runAuthorizedMcpTool(input: {
     runId: input.runId,
     traceId: input.traceId
   });
-  if (before.decision !== "allow") {
-    throw new Error(before.decision === "deny" ? before.reason : "approval_required");
-  }
 
   try {
-    const result = await input.mcpClient.callTool(input.toolName, input.args);
+    const result = await input.mcpClient.callTool(input.toolName, input.args, authorization.approvalToken);
     await input.postBeacon({
       phase: "after",
       toolCallId,

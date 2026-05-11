@@ -9,6 +9,7 @@ import { applyMigrations } from "./db/migrations.js";
 import { registerPublicRoutes } from "./api/routes.js";
 import { registerInternalRoutes } from "./internal/routes.js";
 import { createWsHub, registerWebSocket } from "./ws/gateway.js";
+import { startSweeps } from "./maintenance/sweeps.js";
 
 type ServerDeps = { config?: OrchestratorConfig; db?: TuringDatabase; hub?: ReturnType<typeof createWsHub> };
 
@@ -67,7 +68,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   await internalServer.listen({ host: "0.0.0.0", port: config.internalPort });
   await publicServer.listen({ host: "0.0.0.0", port: config.publicPort });
 
+  const sweeps = startSweeps({ db, config, hub });
+
   process.once("SIGTERM", async () => {
+    sweeps.stop();
     await Promise.all([publicServer.close(), internalServer.close()]);
     db.close();
   });

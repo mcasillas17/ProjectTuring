@@ -15,6 +15,7 @@ import { createEventsService } from "../events/service.js";
 import { createJobsService, RunStateConflictError } from "../jobs/service.js";
 import { createSessionsService } from "../sessions/service.js";
 import { getToolPolicy } from "../tools/policy.js";
+import { createApprovalsService } from "../approvals/service.js";
 
 type BroadcastHub = { broadcast(event: TuringEvent): void };
 type RegisterInternalRoutesDeps = { db: TuringDatabase; config: OrchestratorConfig; hub?: BroadcastHub };
@@ -28,7 +29,8 @@ type ReplyLike = { code(statusCode: number): { send(payload?: unknown): unknown 
 type ToolCallRunRow = { runId: string };
 type BeforeToolDecision =
   | Extract<ToolPolicyDecision, { decision: "allow" }>
-  | Extract<ToolPolicyDecision, { decision: "deny" }>;
+  | Extract<ToolPolicyDecision, { decision: "deny" }>
+  | { decision: "approval_required"; toolCallId: string };
 
 const GENERAL_ASSISTANT: AgentId = "general_assistant";
 
@@ -116,9 +118,8 @@ function beforeToolDecision(beacon: ToolCallBeacon): BeforeToolDecision {
   }
   if (policy === "safe") return { decision: "allow", toolCallId: beacon.toolCallId };
   if (policy === "disabled") return { decision: "deny", toolCallId: beacon.toolCallId, reason: "policy_denied" };
-  // Approval-required: Task 13 will replace this fail-closed branch with the
-  // real approval creation + polling flow.
-  return { decision: "deny", toolCallId: beacon.toolCallId, reason: "approval_required" };
+  if (!beacon.args) return { decision: "deny", toolCallId: beacon.toolCallId, reason: "approval_args_missing" };
+  return { decision: "approval_required", toolCallId: beacon.toolCallId };
 }
 
 export async function registerInternalRoutes<
@@ -131,6 +132,7 @@ export async function registerInternalRoutes<
   const events = createEventsService(deps.db);
   const sessions = createSessionsService(deps.db);
   const audit = createAuditService(deps.db);
+  const approvals = createApprovalsService(deps.db, deps.config.approvalJwtSecret);
 
   app.get<{ Querystring: NextJobQuery }>("/internal/jobs/next", async (request, reply) => {
     const agent = request.query.agent ?? GENERAL_ASSISTANT;
@@ -177,6 +179,7 @@ export async function registerInternalRoutes<
     const args = request.body.args ?? {};
     const argsJson = canonicalJson(args) ?? "{}";
     const now = new Date().toISOString();
+    let wireDecision: ToolPolicyDecision | undefined;
     if (request.body.phase === "before") {
       const decision = beforeToolDecision(request.body);
       const existing = deps.db.prepare("SELECT run_id AS runId FROM tool_calls WHERE id = ?").get(request.body.toolCallId) as ToolCallRunRow | undefined;
@@ -186,6 +189,13 @@ export async function registerInternalRoutes<
         }
         return conflict(reply, request.id, "tool_call_conflict", "Tool call already exists");
       }
+
+      const toolCallStatus = decision.decision === "allow" ? "requested" : decision.decision === "approval_required" ? "approval_required" : "denied";
+      const errorCode = decision.decision === "allow" || decision.decision === "approval_required"
+        ? null
+        : decision.reason.includes("approval") ? "approval_required" : "tool_denied";
+      const errorMessage = decision.decision === "deny" ? decision.reason : null;
+      const completedAt = decision.decision === "deny" ? now : null;
 
       deps.db
         .prepare(
@@ -199,21 +209,38 @@ export async function registerInternalRoutes<
           request.body.toolName,
           argsJson,
           argsHash(argsJson),
-          decision.decision === "allow" ? "requested" : "denied",
-          decision.decision === "allow" ? null : decision.reason.includes("approval") ? "approval_required" : "tool_denied",
-          decision.decision === "allow" ? null : decision.reason,
+          toolCallStatus,
+          errorCode,
+          errorMessage,
           now,
-          decision.decision === "allow" ? null : now
+          completedAt
         );
 
-      const event = events.append({
-        sessionId: run.session_id,
-        runId: request.params.runId,
-        traceId: run.trace_id,
-        type: decision.decision === "allow" ? "tool.call.started" : "tool.call.denied",
-        payload: request.body
-      });
-      deps.hub?.broadcast(event);
+      if (decision.decision === "approval_required") {
+        // args presence already enforced by beforeToolDecision; assert for the type narrowing.
+        const created = approvals.createApproval({
+          runId: request.params.runId,
+          toolCallId: request.body.toolCallId,
+          agentId: request.body.agentId,
+          toolName: request.body.toolName,
+          args: request.body.args as Record<string, unknown>
+        });
+        deps.db.prepare("UPDATE tool_calls SET approval_id = ? WHERE id = ?").run(created.approvalId, request.body.toolCallId);
+        if (created.event) deps.hub?.broadcast(created.event);
+        wireDecision = { decision: "approval_required", toolCallId: request.body.toolCallId, approvalId: created.approvalId };
+      } else {
+        const event = events.append({
+          sessionId: run.session_id,
+          runId: request.params.runId,
+          traceId: run.trace_id,
+          type: decision.decision === "allow" ? "tool.call.started" : "tool.call.denied",
+          payload: request.body
+        });
+        deps.hub?.broadcast(event);
+        wireDecision = decision.decision === "allow"
+          ? { decision: "allow", toolCallId: request.body.toolCallId }
+          : { decision: "deny", toolCallId: request.body.toolCallId, reason: decision.reason };
+      }
     } else {
       const result = deps.db
         .prepare(
@@ -255,7 +282,29 @@ export async function registerInternalRoutes<
       payload: { ...request.body, runId: request.params.runId }
     });
 
-    return request.body.phase === "before" ? beforeToolDecision(request.body) : ({ decision: "allow", toolCallId: request.body.toolCallId } satisfies ToolPolicyDecision);
+    return wireDecision ?? ({ decision: "allow", toolCallId: request.body.toolCallId } satisfies ToolPolicyDecision);
+  });
+
+  app.get<{ Params: { approvalId: string } }>("/internal/approvals/:approvalId", async (request, reply) => {
+    const approval = approvals.getForRuntime(request.params.approvalId);
+    if (!approval) return reply.code(404).send({ error: { code: "approval_not_found", message: "Approval not found", requestId: request.id } });
+    return approval;
+  });
+
+  app.post<{ Params: { approvalId: string } }>("/internal/approvals/:approvalId/consume", async (request, reply) => {
+    try {
+      const consumed = approvals.consume(request.params.approvalId);
+      if (consumed.event) deps.hub?.broadcast(consumed.event);
+      return consumed;
+    } catch (error) {
+      return reply.code(409).send({
+        error: {
+          code: "approval_not_consumable",
+          message: error instanceof Error ? error.message : "Approval is not consumable",
+          requestId: request.id
+        }
+      });
+    }
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: MessagesQuery }>("/internal/sessions/:sessionId/messages", async (request, reply) => {

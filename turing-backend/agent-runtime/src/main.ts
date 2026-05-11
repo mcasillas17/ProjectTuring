@@ -5,6 +5,7 @@ import { createGeneralAssistantExecutor } from "./agents/generalAssistant.js";
 import { createLogger } from "./logging/logger.js";
 import { OllamaProvider } from "./llm/ollama.js";
 import { OpenAICompatibleProvider } from "./llm/openaiCompatible.js";
+import { McpClient } from "./mcp/client.js";
 import type { LlmProvider } from "./llm/provider.js";
 import type { ModelProviderId } from "@turing/shared-types";
 
@@ -18,7 +19,16 @@ const providers: Partial<Record<ModelProviderId, LlmProvider>> = {
     ? { openai_compatible: new OpenAICompatibleProvider(config.openaiBaseUrl, config.openaiApiKey) }
     : {})
 };
-const executor = createGeneralAssistantExecutor(providers);
+
+const systemMcpClient = new McpClient(config.mcpSystemBaseUrl, config.mcpSystemToken);
+const filesMcpClient = new McpClient(config.mcpFilesBaseUrl, config.mcpFilesToken);
+
+const executor = createGeneralAssistantExecutor(providers, {
+  systemMcpClient,
+  filesMcpClient,
+  postBeacon: (beacon) => client.postToolBeacon(beacon.runId, beacon),
+  getApproval: (approvalId) => client.getApproval(approvalId)
+});
 
 while (true) {
   const job = await client.claimNext(config.agentId);
