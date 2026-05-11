@@ -15,6 +15,8 @@ services:
       - net-files
 
   turing-agent-runtime-general:
+    profiles:
+      - future-runtime
     build:
       context: ..
       dockerfile: agent-runtime/Dockerfile
@@ -40,6 +42,8 @@ services:
       - net-files
 
   turing-mcp-system:
+    profiles:
+      - future-runtime
     build: ../mcp-system
     environment:
       MCP_SYSTEM_TOKEN_GENERAL: ${MCP_SYSTEM_TOKEN_GENERAL}
@@ -51,6 +55,8 @@ services:
       - net-system
 
   turing-mcp-files:
+    profiles:
+      - future-runtime
     build: ../mcp-files
     environment:
       MCP_FILES_TOKEN_GENERAL: ${MCP_FILES_TOKEN_GENERAL}

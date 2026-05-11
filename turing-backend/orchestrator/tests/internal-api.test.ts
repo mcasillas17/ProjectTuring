@@ -75,7 +75,7 @@ describe("internal API", () => {
         toolCallId,
         agentId: "general_assistant",
         serverName: "system",
-        toolName: "read_context",
+        toolName: "system.time",
         args: { path: "alpha" },
         runId: runA.runId,
         traceId: runA.traceId
@@ -92,7 +92,7 @@ describe("internal API", () => {
         toolCallId,
         agentId: "general_assistant",
         serverName: "system",
-        toolName: "read_context",
+        toolName: "system.time",
         status: "completed",
         resultSummary: "wrong run",
         durationMs: 10,
@@ -195,7 +195,7 @@ describe("internal API", () => {
           toolCallId,
           agentId: "general_assistant",
           serverName: "system",
-          toolName: "read_context",
+          toolName: "system.time",
           args,
           runId: seeded.runId,
           traceId: seeded.traceId
@@ -210,5 +210,68 @@ describe("internal API", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0].argsHash).toBe(rows[1].argsHash);
     expect(rows.map((row) => row.argsJson)).toEqual(['{"a":1,"b":2}', '{"a":1,"b":2}']);
+  });
+
+  it("denies approval-required file tools until approvals are available", async () => {
+    const { app, db } = await buildInternalServerForTest();
+    const seeded = seedQueuedJob(db);
+
+    await app.inject({ method: "GET", url: "/internal/jobs/next?agent=general_assistant", headers });
+    const response = await app.inject({
+      method: "POST",
+      url: `/internal/runs/${seeded.runId}/audit/tool-call`,
+      headers,
+      payload: {
+        phase: "before",
+        toolCallId: "call_files_update",
+        agentId: "general_assistant",
+        serverName: "files",
+        toolName: "files.update",
+        args: { path: "note.txt", content: "hello" },
+        runId: seeded.runId,
+        traceId: seeded.traceId
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      decision: "deny",
+      toolCallId: "call_files_update",
+      reason: expect.stringContaining("approval")
+    });
+    const toolCall = db.prepare("SELECT status, error_code AS errorCode FROM tool_calls WHERE id = ?").get("call_files_update") as {
+      status: string;
+      errorCode: string | null;
+    };
+    expect(toolCall).toEqual({ status: "denied", errorCode: "approval_required" });
+  });
+
+  it("denies unknown tools instead of allowing them", async () => {
+    const { app, db } = await buildInternalServerForTest();
+    const seeded = seedQueuedJob(db);
+
+    await app.inject({ method: "GET", url: "/internal/jobs/next?agent=general_assistant", headers });
+    const response = await app.inject({
+      method: "POST",
+      url: `/internal/runs/${seeded.runId}/audit/tool-call`,
+      headers,
+      payload: {
+        phase: "before",
+        toolCallId: "call_unknown",
+        agentId: "general_assistant",
+        serverName: "system",
+        toolName: "system.shell",
+        args: {},
+        runId: seeded.runId,
+        traceId: seeded.traceId
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      decision: "deny",
+      toolCallId: "call_unknown",
+      reason: expect.stringContaining("Unknown")
+    });
   });
 });

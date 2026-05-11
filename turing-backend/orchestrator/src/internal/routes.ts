@@ -25,8 +25,12 @@ type FailBody = { code?: unknown; message?: unknown; retryable?: unknown };
 type MessagesQuery = { limit?: string };
 type ReplyLike = { code(statusCode: number): { send(payload?: unknown): unknown } };
 type ToolCallRunRow = { runId: string };
+type BeforeToolDecision =
+  | Extract<ToolPolicyDecision, { decision: "allow" }>
+  | Extract<ToolPolicyDecision, { decision: "deny" }>;
 
 const GENERAL_ASSISTANT: AgentId = "general_assistant";
+const SAFE_SYSTEM_TOOLS = new Set(["system.health", "system.time", "system.echo", "system.info"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -104,6 +108,16 @@ function argsHash(argsJson: string) {
   return `sha256:${createHash("sha256").update(argsJson).digest("hex")}`;
 }
 
+function beforeToolDecision(beacon: ToolCallBeacon): BeforeToolDecision {
+  if (beacon.serverName === "system" && SAFE_SYSTEM_TOOLS.has(beacon.toolName)) {
+    return { decision: "allow", toolCallId: beacon.toolCallId };
+  }
+  if (beacon.serverName === "files") {
+    return { decision: "deny", toolCallId: beacon.toolCallId, reason: "Tool requires approval; approvals are not available yet" };
+  }
+  return { decision: "deny", toolCallId: beacon.toolCallId, reason: `Unknown tool ${beacon.serverName}.${beacon.toolName}` };
+}
+
 export async function registerInternalRoutes<
   RawServer extends RawServerBase,
   RawRequest extends RawRequestDefaultExpression<RawServer>,
@@ -161,6 +175,7 @@ export async function registerInternalRoutes<
     const argsJson = canonicalJson(args) ?? "{}";
     const now = new Date().toISOString();
     if (request.body.phase === "before") {
+      const decision = beforeToolDecision(request.body);
       const existing = deps.db.prepare("SELECT run_id AS runId FROM tool_calls WHERE id = ?").get(request.body.toolCallId) as ToolCallRunRow | undefined;
       if (existing) {
         if (existing.runId !== request.params.runId) {
@@ -171,15 +186,28 @@ export async function registerInternalRoutes<
 
       deps.db
         .prepare(
-          "INSERT INTO tool_calls (id, run_id, agent_id, server_name, tool_name, args_json, args_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?)"
+          "INSERT INTO tool_calls (id, run_id, agent_id, server_name, tool_name, args_json, args_hash, status, error_code, error_message, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
-        .run(request.body.toolCallId, request.params.runId, request.body.agentId, request.body.serverName, request.body.toolName, argsJson, argsHash(argsJson), now);
+        .run(
+          request.body.toolCallId,
+          request.params.runId,
+          request.body.agentId,
+          request.body.serverName,
+          request.body.toolName,
+          argsJson,
+          argsHash(argsJson),
+          decision.decision === "allow" ? "requested" : "denied",
+          decision.decision === "allow" ? null : decision.reason.includes("approval") ? "approval_required" : "tool_denied",
+          decision.decision === "allow" ? null : decision.reason,
+          now,
+          decision.decision === "allow" ? null : now
+        );
 
       const event = events.append({
         sessionId: run.session_id,
         runId: request.params.runId,
         traceId: run.trace_id,
-        type: "tool.call.started",
+        type: decision.decision === "allow" ? "tool.call.started" : "tool.call.denied",
         payload: request.body
       });
       deps.hub?.broadcast(event);
@@ -224,8 +252,7 @@ export async function registerInternalRoutes<
       payload: { ...request.body, runId: request.params.runId }
     });
 
-    const decision: ToolPolicyDecision = { decision: "allow", toolCallId: request.body.toolCallId };
-    return decision;
+    return request.body.phase === "before" ? beforeToolDecision(request.body) : ({ decision: "allow", toolCallId: request.body.toolCallId } satisfies ToolPolicyDecision);
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: MessagesQuery }>("/internal/sessions/:sessionId/messages", async (request, reply) => {
