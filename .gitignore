@@ -20,7 +20,8 @@ docker-compose.override.yml
 # ==========================
 # Binaries
 # We named our compiled binary 'server' in the Dockerfiles
-server
+turing-backend/mcp-system/server
+turing-backend/mcp-files/server
 *.exe
 *.test
 *.prof

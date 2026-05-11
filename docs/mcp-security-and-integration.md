@@ -3,11 +3,8 @@
 This document describes the two Go-based MCP (Model Context Protocol) servers
 delivered for Project Turing v1.0 — `mcp-system` and `mcp-files` — and the
 security model that bounds what the assistant runtime can do through them. It
-is paired with the implementation on branch `pturing-v1-claude-runtime-mcp`
-(Tasks 10 and 12 of the v1 hybrid-runtime plan). The runtime-side and
-orchestrator-side integration that consumes these servers (Tasks 8, 9, 11, 13)
-is **pending** Copilot's `shared-types` and orchestrator foundation and is
-documented here as expected behavior, not delivered behavior.
+is paired with the integrated v1 runtime/orchestrator implementation on
+`pturing-v1-base`.
 
 The intent of this guide is that a reviewer can evaluate the security posture
 without reading the Go source.
@@ -16,7 +13,7 @@ without reading the Go source.
 
 Project Turing v1.0 splits agent execution out of the orchestrator. The agent
 runtime calls a small number of MCP servers over JSON-RPC 2.0 (Streamable HTTP)
-on the internal Docker network. Two MCP servers are in scope for this branch:
+on the internal Docker network. Two MCP servers are in scope for v1.0:
 
 | Service       | Port            | Bearer token env              | Purpose                                                |
 |---------------|-----------------|-------------------------------|--------------------------------------------------------|
@@ -27,8 +24,8 @@ Both servers expect to be reachable only from the orchestrator and the agent
 runtime over the internal Docker network. Neither server is published to the
 host in the expected v1.0 compose layout.
 
-The Go code for these two services is on branch
-`pturing-v1-claude-runtime-mcp` and is not yet merged into `pturing-v1-base`.
+The default Compose stack starts both servers internally; neither `/mcp`
+endpoint is published to the host.
 
 ## System MCP server (`mcp-system`)
 
@@ -446,13 +443,7 @@ A concise mapping from rejection to threat:
 - **Disabled mutating tools (`delete`, `move`).** Returned as `tool disabled`
   by the dispatcher; cannot be enabled without a code change.
 
-## Runtime / orchestrator integration — PENDING
-
-> **Status: pending.** The agent runtime (Tasks 8 and 11) and the
-> orchestrator's approval signing + consume endpoint (Task 13) have not
-> landed yet; they depend on Copilot's `shared-types` and orchestrator
-> foundation. This section describes the expected wiring that the Go
-> services on this branch are already prepared for.
+## Runtime / orchestrator integration
 
 ### Agent runtime (Tasks 8 and 11)
 
@@ -460,8 +451,8 @@ A concise mapping from rejection to threat:
   `MCP_FILES_TOKEN_GENERAL`.
 - Routes JSON-RPC requests to `http://turing-mcp-system:7100/mcp` and
   `http://turing-mcp-files:7110/mcp` on the internal Docker network. Both
-  base URLs are already referenced in the plan's orchestrator config
-  (`mcpSystemBaseUrl`, `mcpFilesBaseUrl`).
+  base URLs are configurable through `MCP_SYSTEM_BASE_URL` and
+  `MCP_FILES_BASE_URL`, with those Docker-network URLs as defaults.
 - For approval-gated tools, attaches the orchestrator-issued JWT to
   `params._meta.approvalToken`, not to `params.arguments`.
 - Treats any HTTP non-2xx from an MCP server as a hard error (e.g.
@@ -469,8 +460,8 @@ A concise mapping from rejection to threat:
 
 ### Orchestrator (Task 13)
 
-The orchestrator must implement the signing side and the consume endpoint
-that the Files MCP verifier is already calling.
+The orchestrator implements the signing side and the consume endpoint that the
+Files MCP verifier calls.
 
 JWT signing requirements:
 
@@ -531,17 +522,19 @@ Consume endpoint requirements:
 
 ## Verifying locally
 
-The two services on this branch have Go test suites that exercise the
-sandbox, the read limits, the approval verifier, and the auth middleware:
+The two services have Go test suites that exercise the server entrypoints,
+sandbox, read limits, approval verifier, and auth middleware:
 
 ```sh
-cd turing-backend/mcp-system && go test ./...
-cd turing-backend/mcp-files  && go test ./...
+cd turing-backend/mcp-system && go test ./... && go vet ./... && go build ./...
+cd turing-backend/mcp-files  && go test ./... && go vet ./... && go build ./...
 ```
 
-Note that the implementation under test lives on branch
-`pturing-v1-claude-runtime-mcp` and is not yet on `pturing-v1-base`. To run
-the tests, check out that branch (or its worktree) first. Smoke testing of
-the full runtime path — runtime calling MCP, orchestrator signing approvals,
-the consume endpoint actually returning `200`/`409` — is not possible until
-Copilot's foundation lands and Tasks 8, 9, 11, and 13 are integrated.
+The full runtime path — runtime calling MCP, orchestrator signing approvals,
+and the consume endpoint returning `200`/`409` — is covered by the local
+Compose smoke path when Docker and Ollama are available:
+
+```sh
+cd turing-backend
+./scripts/smoke.sh
+```

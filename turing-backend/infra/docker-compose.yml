@@ -15,8 +15,6 @@ services:
       - net-files
 
   turing-agent-runtime-general:
-    profiles:
-      - future-runtime
     build:
       context: ..
       dockerfile: agent-runtime/Dockerfile
@@ -24,6 +22,7 @@ services:
       TURING_INTERNAL_TOKEN: ${TURING_INTERNAL_TOKEN}
       MCP_SYSTEM_TOKEN_GENERAL: ${MCP_SYSTEM_TOKEN_GENERAL}
       MCP_FILES_TOKEN_GENERAL: ${MCP_FILES_TOKEN_GENERAL}
+      ORCHESTRATOR_INTERNAL_BASE_URL: ${ORCHESTRATOR_INTERNAL_BASE_URL:-http://turing-orchestrator:3001/internal}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
       OLLAMA_MODEL: ${OLLAMA_MODEL}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL}
@@ -42,8 +41,6 @@ services:
       - net-files
 
   turing-mcp-system:
-    profiles:
-      - future-runtime
     build: ../mcp-system
     environment:
       MCP_SYSTEM_TOKEN_GENERAL: ${MCP_SYSTEM_TOKEN_GENERAL}
@@ -55,12 +52,12 @@ services:
       - net-system
 
   turing-mcp-files:
-    profiles:
-      - future-runtime
     build: ../mcp-files
     environment:
       MCP_FILES_TOKEN_GENERAL: ${MCP_FILES_TOKEN_GENERAL}
       TURING_APPROVAL_JWT_SECRET: ${TURING_APPROVAL_JWT_SECRET}
+      TURING_INTERNAL_TOKEN: ${TURING_INTERNAL_TOKEN}
+      ORCHESTRATOR_INTERNAL_BASE_URL: ${ORCHESTRATOR_INTERNAL_BASE_URL:-http://turing-orchestrator:3001/internal}
       FILES_SANDBOX_ROOT: ${FILES_SANDBOX_ROOT}
       LOG_LEVEL: ${LOG_LEVEL}
       LOG_PRETTY: ${LOG_PRETTY}
