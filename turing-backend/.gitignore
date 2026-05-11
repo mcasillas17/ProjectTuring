@@ -5,6 +5,8 @@
 !**/.env.example
 .runtime/
 data/turing.db*
+sandbox/*
+!sandbox/.gitkeep
 node_modules/
 dist/
 coverage/

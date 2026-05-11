@@ -12,8 +12,9 @@ generate_client_key() {
 }
 
 if [[ ! -f .env ]]; then
-  cp .env.example .env
+  (umask 077 && cp .env.example .env)
 fi
+chmod 600 .env
 
 ensure_var() {
   local name="$1"

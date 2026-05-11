@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "npm run build -w @turing/shared-types && tsc -p tsconfig.json",
+    "typecheck": "npm run build -w @turing/shared-types && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts"

@@ -9,4 +9,6 @@ fi
 docker compose -f infra/docker-compose.yml down --remove-orphans || true
 rm -rf data .runtime .env
 mkdir -p data sandbox
+touch data/.gitkeep sandbox/.gitkeep
 ./scripts/init.sh
+touch data/.gitkeep sandbox/.gitkeep
