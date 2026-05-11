@@ -11,6 +11,11 @@ import { registerPublicRoutes } from "./api/routes.js";
 type BroadcastHub = { broadcast(event: unknown): void };
 type ServerDeps = { config?: OrchestratorConfig; db?: TuringDatabase; hub?: BroadcastHub };
 
+function isAuthExemptPath(requestUrl: string, routeUrl?: string): boolean {
+  const path = requestUrl.split("?", 1)[0];
+  return routeUrl === "/health" || routeUrl === "/version" || routeUrl === "/ws" || path === "/health" || path === "/version" || path === "/ws";
+}
+
 export async function buildPublicServer(deps: ServerDeps = {}) {
   const config = deps.config ?? loadConfig();
   const db = deps.db ?? openDatabase(config.databasePath);
@@ -25,7 +30,7 @@ export async function buildPublicServer(deps: ServerDeps = {}) {
   app.get("/version", async () => ({ version: "1.0.0", schemaVersion: "0001" }));
 
   app.addHook("preHandler", async (request, reply) => {
-    if (request.routeOptions.url === "/health" || request.routeOptions.url === "/version" || request.routeOptions.url === "/ws") return;
+    if (isAuthExemptPath(request.url, request.routeOptions.url)) return;
     await requireBearer(config.clientApiKey)(request, reply);
   });
 

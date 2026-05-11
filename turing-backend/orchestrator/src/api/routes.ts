@@ -17,9 +17,14 @@ import { createSessionsService } from "../sessions/service.js";
 
 type BroadcastHub = { broadcast(event: unknown): void };
 type RegisterPublicRoutesDeps = { db: TuringDatabase; config: OrchestratorConfig; hub?: BroadcastHub };
-type SendMessageBody = { content?: unknown; modelProvider?: ModelProviderId; model?: string };
+type CreateSessionBody = { title?: unknown };
+type SendMessageBody = { content?: unknown; modelProvider?: unknown; model?: unknown };
 
 const GENERAL_ASSISTANT: AgentId = "general_assistant";
+
+function isModelProvider(value: unknown): value is ModelProviderId {
+  return value === "ollama" || value === "openai_compatible";
+}
 
 function numberFromQuery(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -46,7 +51,11 @@ export async function registerPublicRoutes<
     features: { approvals: true, filesMcp: true }
   }));
 
-  app.post<{ Body: { title?: string } }>("/api/sessions", async (request, reply) => {
+  app.post<{ Body: CreateSessionBody }>("/api/sessions", async (request, reply) => {
+    if (request.body?.title !== undefined && typeof request.body.title !== "string") {
+      return reply.code(400).send({ error: { code: "invalid_request", message: "title must be a string", requestId: request.id } });
+    }
+
     return reply.code(201).send(sessions.createSession({ title: request.body?.title }));
   });
 
@@ -75,6 +84,15 @@ export async function registerPublicRoutes<
     if (typeof request.body?.content !== "string" || request.body.content.length === 0) {
       return reply.code(400).send({ error: { code: "invalid_request", message: "content is required", requestId: request.id } });
     }
+    if (request.body.modelProvider !== undefined && !isModelProvider(request.body.modelProvider)) {
+      return reply.code(400).send({ error: { code: "invalid_request", message: "modelProvider must be ollama or openai_compatible", requestId: request.id } });
+    }
+    if (request.body.model !== undefined && typeof request.body.model !== "string") {
+      return reply.code(400).send({ error: { code: "invalid_request", message: "model must be a string", requestId: request.id } });
+    }
+    if (!getSessionById(deps.db, request.params.sessionId)) {
+      return reply.code(404).send({ error: { code: "session_not_found", message: "Session not found", requestId: request.id } });
+    }
 
     const modelProvider = request.body.modelProvider ?? "ollama";
     const model = request.body.model ?? (modelProvider === "ollama" ? deps.config.ollamaModel : deps.config.openaiModel);
@@ -90,7 +108,7 @@ export async function registerPublicRoutes<
       runId: result.runId,
       traceId: result.traceId,
       type: "agent.run.queued",
-      payload: { runId: result.runId, status: "queued", agentId: GENERAL_ASSISTANT }
+      payload: { runId: result.runId, jobId: result.jobId, status: "queued", agentId: GENERAL_ASSISTANT }
     });
 
     deps.hub?.broadcast(queuedEvent);
