@@ -91,6 +91,7 @@ export function createJobsService(db: TuringDatabase, config: { jobTimeoutMs: nu
             );
           } else {
             db.prepare("UPDATE jobs SET status = 'pending', attempt = attempt + 1, picked_up_at = NULL WHERE id = ?").run(job.id);
+            db.prepare("UPDATE agent_runs SET status = 'queued', started_at = NULL WHERE id = ?").run(job.run_id);
           }
           count += 1;
         }

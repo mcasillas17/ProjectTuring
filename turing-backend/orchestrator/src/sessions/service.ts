@@ -6,7 +6,7 @@ const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${ulid()}`;
 
 type SessionRow = {
-  id: string;
+  sessionId: string;
   title: string | null;
   status: "active" | "archived";
   createdAt: string;
@@ -14,7 +14,7 @@ type SessionRow = {
 };
 
 type MessageRow = {
-  id: string;
+  messageId: string;
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   contentType: string;
@@ -40,14 +40,14 @@ export function createSessionsService(db: TuringDatabase) {
 
     listSessions(limit = 50) {
       return db
-        .prepare("SELECT id, title, status, created_at AS createdAt, updated_at AS updatedAt FROM sessions ORDER BY updated_at DESC LIMIT ?")
+        .prepare("SELECT id AS sessionId, title, status, created_at AS createdAt, updated_at AS updatedAt FROM sessions ORDER BY updated_at DESC LIMIT ?")
         .all(limit) as SessionRow[];
     },
 
     getMessages(sessionId: string, limit = 50) {
       return (db
         .prepare(
-          "SELECT id, role, content, content_type AS contentType, sequence, created_at AS createdAt FROM messages WHERE session_id = ? ORDER BY sequence DESC LIMIT ?"
+          "SELECT id AS messageId, role, content, content_type AS contentType, sequence, created_at AS createdAt FROM messages WHERE session_id = ? ORDER BY sequence DESC LIMIT ?"
         )
         .all(sessionId, limit) as MessageRow[]).reverse();
     },
