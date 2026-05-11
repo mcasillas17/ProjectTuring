@@ -12,7 +12,7 @@ import type { OrchestratorConfig } from "../config.js";
 import type { TuringDatabase } from "../db/connection.js";
 import { createAuditService } from "../audit/service.js";
 import { createEventsService } from "../events/service.js";
-import { createJobsService } from "../jobs/service.js";
+import { createJobsService, RunStateConflictError } from "../jobs/service.js";
 import { createSessionsService } from "../sessions/service.js";
 
 type BroadcastHub = { broadcast(event: unknown): void };
@@ -24,6 +24,7 @@ type CompleteBody = { assistantMessageId?: unknown; content?: unknown };
 type FailBody = { code?: unknown; message?: unknown; retryable?: unknown };
 type MessagesQuery = { limit?: string };
 type ReplyLike = { code(statusCode: number): { send(payload?: unknown): unknown } };
+type ToolCallRunRow = { runId: string };
 
 const GENERAL_ASSISTANT: AgentId = "general_assistant";
 
@@ -37,6 +38,10 @@ function badRequest(reply: ReplyLike, requestId: string, message: string) {
 
 function notFound(reply: ReplyLike, requestId: string, code: string, message: string) {
   return reply.code(404).send({ error: { code, message, requestId } });
+}
+
+function conflict(reply: ReplyLike, requestId: string, code: string, message: string) {
+  return reply.code(409).send({ error: { code, message, requestId } });
 }
 
 function numberFromQuery(value: string | undefined, fallback: number): number {
@@ -53,6 +58,20 @@ function getRunContext(db: TuringDatabase, runId: string): RunContextRow | undef
 
 function sessionExists(db: TuringDatabase, sessionId: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(sessionId));
+}
+
+function canonicalJson(value: unknown): string | undefined {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item) ?? "null").join(",")}]`;
+  if (isRecord(value)) {
+    const entries = Object.keys(value)
+      .sort()
+      .flatMap((key) => {
+        const serialized = canonicalJson(value[key]);
+        return serialized === undefined ? [] : [`${JSON.stringify(key)}:${serialized}`];
+      });
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function isTuringEventInput(value: unknown): value is TuringEventInput {
@@ -81,8 +100,8 @@ function isToolCallBeacon(value: unknown): value is ToolCallBeacon {
   return true;
 }
 
-function argsHash(args: Record<string, unknown>) {
-  return `sha256:${createHash("sha256").update(JSON.stringify(args)).digest("hex")}`;
+function argsHash(argsJson: string) {
+  return `sha256:${createHash("sha256").update(argsJson).digest("hex")}`;
 }
 
 export async function registerInternalRoutes<
@@ -120,8 +139,12 @@ export async function registerInternalRoutes<
     const run = getRunContext(deps.db, request.params.runId);
     if (!run) return notFound(reply, request.id, "run_not_found", "Run not found");
     if (request.body.event.sessionId !== run.session_id) return badRequest(reply, request.id, "event sessionId does not match run");
+    if (request.body.event.runId !== undefined && request.body.event.runId !== request.params.runId) {
+      return badRequest(reply, request.id, "event runId does not match URL");
+    }
+    if (request.body.event.traceId !== run.trace_id) return badRequest(reply, request.id, "event traceId does not match run");
 
-    const appended = events.append({ ...request.body.event, runId: request.params.runId });
+    const appended = events.append({ ...request.body.event, sessionId: run.session_id, runId: request.params.runId, traceId: run.trace_id });
     deps.hub?.broadcast(appended);
     return appended;
   });
@@ -131,15 +154,26 @@ export async function registerInternalRoutes<
 
     const run = getRunContext(deps.db, request.params.runId);
     if (!run) return notFound(reply, request.id, "run_not_found", "Run not found");
+    if (request.body.runId !== request.params.runId) return badRequest(reply, request.id, "tool call runId does not match URL");
+    if (request.body.traceId !== run.trace_id) return badRequest(reply, request.id, "tool call traceId does not match run");
 
     const args = request.body.args ?? {};
+    const argsJson = canonicalJson(args) ?? "{}";
     const now = new Date().toISOString();
     if (request.body.phase === "before") {
+      const existing = deps.db.prepare("SELECT run_id AS runId FROM tool_calls WHERE id = ?").get(request.body.toolCallId) as ToolCallRunRow | undefined;
+      if (existing) {
+        if (existing.runId !== request.params.runId) {
+          return conflict(reply, request.id, "tool_call_run_mismatch", "Tool call belongs to a different run");
+        }
+        return conflict(reply, request.id, "tool_call_conflict", "Tool call already exists");
+      }
+
       deps.db
         .prepare(
-          "INSERT OR IGNORE INTO tool_calls (id, run_id, agent_id, server_name, tool_name, args_json, args_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?)"
+          "INSERT INTO tool_calls (id, run_id, agent_id, server_name, tool_name, args_json, args_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?)"
         )
-        .run(request.body.toolCallId, request.params.runId, request.body.agentId, request.body.serverName, request.body.toolName, JSON.stringify(args), argsHash(args), now);
+        .run(request.body.toolCallId, request.params.runId, request.body.agentId, request.body.serverName, request.body.toolName, argsJson, argsHash(argsJson), now);
 
       const event = events.append({
         sessionId: run.session_id,
@@ -152,7 +186,7 @@ export async function registerInternalRoutes<
     } else {
       const result = deps.db
         .prepare(
-          "UPDATE tool_calls SET status = ?, result_summary = ?, error_code = ?, error_message = ?, duration_ms = ?, completed_at = ? WHERE id = ?"
+          "UPDATE tool_calls SET status = ?, result_summary = ?, error_code = ?, error_message = ?, duration_ms = ?, completed_at = ? WHERE id = ? AND run_id = ?"
         )
         .run(
           request.body.status ?? "completed",
@@ -161,9 +195,14 @@ export async function registerInternalRoutes<
           request.body.error?.message ?? null,
           request.body.durationMs ?? null,
           now,
-          request.body.toolCallId
+          request.body.toolCallId,
+          request.params.runId
         );
-      if (result.changes === 0) return notFound(reply, request.id, "tool_call_not_found", "Tool call not found");
+      if (result.changes === 0) {
+        const existing = deps.db.prepare("SELECT run_id AS runId FROM tool_calls WHERE id = ?").get(request.body.toolCallId) as ToolCallRunRow | undefined;
+        if (existing) return conflict(reply, request.id, "tool_call_run_mismatch", "Tool call belongs to a different run");
+        return notFound(reply, request.id, "tool_call_not_found", "Tool call not found");
+      }
 
       const type = request.body.status === "failed" ? "tool.call.failed" : request.body.status === "denied" ? "tool.call.denied" : "tool.call.completed";
       const event = events.append({
@@ -203,7 +242,12 @@ export async function registerInternalRoutes<
     if (!run) return notFound(reply, request.id, "run_not_found", "Run not found");
     if (request.body.assistantMessageId !== run.assistant_message_id) return badRequest(reply, request.id, "assistantMessageId does not match run");
 
-    jobs.completeRun(request.params.runId, request.body.assistantMessageId, request.body.content);
+    try {
+      jobs.completeRun(request.params.runId, request.body.assistantMessageId, request.body.content);
+    } catch (error) {
+      if (error instanceof RunStateConflictError) return conflict(reply, request.id, "run_state_conflict", "Run is not running");
+      throw error;
+    }
     const completed = events.append({
       sessionId: run.session_id,
       runId: request.params.runId,
@@ -223,7 +267,12 @@ export async function registerInternalRoutes<
     const run = getRunContext(deps.db, request.params.runId);
     if (!run) return notFound(reply, request.id, "run_not_found", "Run not found");
 
-    jobs.failRun(request.params.runId, request.body.code, request.body.message);
+    try {
+      jobs.failRun(request.params.runId, request.body.code, request.body.message);
+    } catch (error) {
+      if (error instanceof RunStateConflictError) return conflict(reply, request.id, "run_state_conflict", "Run is not running");
+      throw error;
+    }
     const failed = events.append({
       sessionId: run.session_id,
       runId: request.params.runId,
