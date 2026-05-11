@@ -15,6 +15,7 @@ FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=deps /repo/node_modules /app/node_modules
+COPY --from=builder /repo/shared-types/package.json /app/shared-types/package.json
 COPY --from=builder /repo/shared-types/dist /app/shared-types/dist
 COPY --from=builder /repo/orchestrator/dist /app/dist
 COPY --from=builder /repo/orchestrator/migrations /app/migrations
