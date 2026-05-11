@@ -141,6 +141,34 @@ describe("internal API", () => {
     expect(persisted.count).toBe(0);
   });
 
+  it("rejects run events that include server-generated replay fields", async () => {
+    const { app, db } = await buildInternalServerForTest();
+    const seeded = seedQueuedJob(db);
+
+    await app.inject({ method: "GET", url: "/internal/jobs/next?agent=general_assistant", headers });
+    const response = await app.inject({
+      method: "POST",
+      url: `/internal/runs/${seeded.runId}/events`,
+      headers,
+      payload: {
+        event: {
+          eventId: "evt_client_supplied",
+          sequence: 999,
+          sessionId: seeded.sessionId,
+          runId: seeded.runId,
+          traceId: seeded.traceId,
+          type: "message.delta",
+          payload: { messageId: seeded.assistantMessageId, delta: "hi" }
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: "invalid_request", requestId: expect.any(String) } });
+    const persisted = db.prepare("SELECT COUNT(*) AS count FROM events WHERE run_id = ? AND type = 'message.delta'").get(seeded.runId) as { count: number };
+    expect(persisted.count).toBe(0);
+  });
+
   it("rejects terminal run overwrites after completion", async () => {
     const { app, db } = await buildInternalServerForTest();
     const seeded = seedQueuedJob(db);

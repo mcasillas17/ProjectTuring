@@ -38,9 +38,13 @@ export function createEventsService(db: TuringDatabase) {
         const row = db.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM events WHERE session_id = ?").get(input.sessionId) as SequenceRow;
         const event: TuringEvent = {
           eventId: `evt_${ulid()}`,
+          sessionId: input.sessionId,
+          runId: input.runId,
+          traceId: input.traceId,
           sequence: row.next,
+          type: input.type,
           createdAt: input.createdAt ?? new Date().toISOString(),
-          ...input
+          payload: input.payload
         };
         db.prepare("INSERT INTO events (id, session_id, run_id, trace_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
           event.eventId,

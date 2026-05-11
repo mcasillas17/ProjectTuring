@@ -1,8 +1,10 @@
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
+import type { TuringEventInput } from "@turing/shared-types";
 import { applyMigrations } from "../src/db/migrations.js";
 import { createSessionsService } from "../src/sessions/service.js";
 import { createJobsService } from "../src/jobs/service.js";
+import { createEventsService } from "../src/events/service.js";
 
 function createTestServices(config = { jobTimeoutMs: 300000, maxAttempts: 3 }) {
   const db = new Database(":memory:");
@@ -11,7 +13,8 @@ function createTestServices(config = { jobTimeoutMs: 300000, maxAttempts: 3 }) {
   return {
     db,
     sessions: createSessionsService(db),
-    jobs: createJobsService(db, config)
+    jobs: createJobsService(db, config),
+    events: createEventsService(db)
   };
 }
 
@@ -73,6 +76,38 @@ describe("sessions and jobs services", () => {
     expect(messages[0]).not.toHaveProperty("id");
     expect(messages[1]).toHaveProperty("messageId", queued.assistantMessageId);
     expect(messages[1]).not.toHaveProperty("id");
+  });
+
+  it("does not let event inputs override server-generated replay fields", () => {
+    const { db, sessions, events } = createTestServices();
+    const session = sessions.createSession({ title: "Events" });
+
+    const first = events.append({
+      sessionId: session.sessionId,
+      traceId: "trace_events",
+      type: "system",
+      payload: { ok: true }
+    });
+    const forgedInput = {
+      sessionId: session.sessionId,
+      traceId: "trace_events",
+      type: "message.delta",
+      payload: { delta: "hi" },
+      eventId: "evt_client_supplied",
+      sequence: 999
+    } as unknown as TuringEventInput;
+    const forged = events.append(forgedInput);
+
+    expect(forged.eventId).not.toBe("evt_client_supplied");
+    expect(forged.sequence).toBe(first.sequence + 1);
+    const rows = db.prepare("SELECT id, sequence FROM events WHERE session_id = ? ORDER BY sequence").all(session.sessionId) as Array<{
+      id: string;
+      sequence: number;
+    }>;
+    expect(rows).toEqual([
+      { id: first.eventId, sequence: 1 },
+      { id: forged.eventId, sequence: 2 }
+    ]);
   });
 
   it("makes retried stale jobs claimable again", () => {

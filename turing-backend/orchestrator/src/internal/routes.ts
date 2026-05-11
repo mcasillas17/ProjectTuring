@@ -80,6 +80,7 @@ function canonicalJson(value: unknown): string | undefined {
 
 function isTuringEventInput(value: unknown): value is TuringEventInput {
   if (!isRecord(value)) return false;
+  if ("eventId" in value || "sequence" in value) return false;
   if (typeof value.sessionId !== "string" || typeof value.traceId !== "string") return false;
   if (value.runId !== undefined && typeof value.runId !== "string") return false;
   if (typeof value.type !== "string" || !isTuringEventType(value.type)) return false;
