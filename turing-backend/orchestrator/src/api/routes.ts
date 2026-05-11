@@ -14,6 +14,7 @@ import { createAuditService } from "../audit/service.js";
 import { createEventsService } from "../events/service.js";
 import { createJobsService } from "../jobs/service.js";
 import { createSessionsService } from "../sessions/service.js";
+import { createApprovalsService } from "../approvals/service.js";
 
 type BroadcastHub = { broadcast(event: TuringEvent): void };
 type RegisterPublicRoutesDeps = { db: TuringDatabase; config: OrchestratorConfig; hub?: BroadcastHub };
@@ -42,6 +43,29 @@ export async function registerPublicRoutes<
   const jobs = createJobsService(deps.db, { jobTimeoutMs: deps.config.jobTimeoutMs, maxAttempts: deps.config.jobMaxAttempts });
   const audit = createAuditService(deps.db);
   const events = createEventsService(deps.db);
+  const approvals = createApprovalsService(deps.db, deps.config.approvalJwtSecret);
+
+  app.post<{ Params: { approvalId: string } }>("/api/approvals/:approvalId/approve", async (request, reply) => {
+    try {
+      const approved = await approvals.approve(request.params.approvalId);
+      if (approved.event) deps.hub?.broadcast(approved.event);
+      return approved;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "approval failed";
+      const status = /expired/i.test(message) ? 410 : 409;
+      return reply.code(status).send({ error: { code: status === 410 ? "approval_expired" : "approval_not_pending", message, requestId: request.id } });
+    }
+  });
+
+  app.post<{ Params: { approvalId: string } }>("/api/approvals/:approvalId/deny", async (request, reply) => {
+    try {
+      const denied = approvals.deny(request.params.approvalId);
+      if (denied.event) deps.hub?.broadcast(denied.event);
+      return denied;
+    } catch (error) {
+      return reply.code(409).send({ error: { code: "approval_not_pending", message: error instanceof Error ? error.message : "approval failed", requestId: request.id } });
+    }
+  });
 
   app.get("/api/config", async () => ({
     providers: {

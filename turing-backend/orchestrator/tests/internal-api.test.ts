@@ -240,7 +240,7 @@ describe("internal API", () => {
     expect(rows.map((row) => row.argsJson)).toEqual(['{"a":1,"b":2}', '{"a":1,"b":2}']);
   });
 
-  it("denies approval-required file tools until approvals are available", async () => {
+  it("creates an approval and returns approval_required when a file tool needs approval", async () => {
     const { app, db } = await buildInternalServerForTest();
     const seeded = seedQueuedJob(db);
 
@@ -262,16 +262,25 @@ describe("internal API", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      decision: "deny",
-      toolCallId: "call_files_update",
-      reason: expect.stringContaining("approval")
-    });
-    const toolCall = db.prepare("SELECT status, error_code AS errorCode FROM tool_calls WHERE id = ?").get("call_files_update") as {
+    const body = response.json() as { decision: string; toolCallId: string; approvalId: string };
+    expect(body.decision).toBe("approval_required");
+    expect(body.toolCallId).toBe("call_files_update");
+    expect(body.approvalId).toMatch(/^appr_/);
+
+    const toolCall = db.prepare("SELECT status, approval_id AS approvalId FROM tool_calls WHERE id = ?").get("call_files_update") as {
       status: string;
-      errorCode: string | null;
+      approvalId: string;
     };
-    expect(toolCall).toEqual({ status: "denied", errorCode: "approval_required" });
+    expect(toolCall.status).toBe("approval_required");
+    expect(toolCall.approvalId).toBe(body.approvalId);
+
+    const run = db.prepare("SELECT status FROM agent_runs WHERE id = ?").get(seeded.runId) as { status: string };
+    expect(run.status).toBe("waiting_approval");
+
+    const approvalEvent = db
+      .prepare("SELECT type FROM events WHERE session_id = ? AND type = 'approval.requested'")
+      .get(seeded.sessionId) as { type: string } | undefined;
+    expect(approvalEvent?.type).toBe("approval.requested");
   });
 
   it("denies unknown tools instead of allowing them", async () => {

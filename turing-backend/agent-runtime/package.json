@@ -1,0 +1,23 @@
+{
+  "name": "@turing/agent-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@turing/shared-types": "1.0.0",
+    "dotenv": "^16.4.7",
+    "pino": "^9.5.0",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8"
+  }
+}
