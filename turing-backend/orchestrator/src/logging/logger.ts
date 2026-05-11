@@ -28,11 +28,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function requestSerializer(request: unknown): SerializedRequest {
   const serialized = pino.stdSerializers.req(request as Parameters<typeof pino.stdSerializers.req>[0]) as SerializedRequest;
   const redacted = typeof serialized.url === "string" ? { ...serialized, url: redactTokenQueryParam(serialized.url) } : { ...serialized };
-  if (isRecord(redacted.query) && "token" in redacted.query) {
-    redacted.query = { ...redacted.query, token: "[redacted]" };
+  if (isRecord(redacted.query)) {
+    redacted.query = Object.fromEntries(
+      Object.entries(redacted.query).map(([key, value]) => [key, key.toLowerCase() === "token" ? "[redacted]" : value])
+    );
   }
-  if (isRecord(redacted.headers) && "authorization" in redacted.headers) {
-    redacted.headers = { ...redacted.headers, authorization: "[redacted]" };
+  if (isRecord(redacted.headers)) {
+    redacted.headers = Object.fromEntries(
+      Object.entries(redacted.headers).map(([key, value]) => [key, key.toLowerCase() === "authorization" ? "[redacted]" : value])
+    );
   }
   return redacted;
 }

@@ -15,17 +15,20 @@ describe("logger", () => {
     app.get("/ws", async () => ({ ok: true }));
 
     try {
-      await app.inject({
-        method: "GET",
-        url: "/ws?to%6ben=tk_secret&last=1",
-        headers: { authorization: "Bearer auth_secret" }
-      });
+      for (const url of ["/ws?to%6ben=tk_secret&last=1", "/ws?%54oken=tk_secret_upper&last=1"]) {
+        await app.inject({
+          method: "GET",
+          url,
+          headers: { authorization: "Bearer auth_secret" }
+        });
+      }
     } finally {
       await app.close();
     }
 
     const logs = chunks.join("");
     expect(logs).not.toContain("tk_secret");
+    expect(logs).not.toContain("tk_secret_upper");
     expect(logs).not.toContain("auth_secret");
     expect(logs).toContain("token");
     expect(logs).toContain("[redacted]");
