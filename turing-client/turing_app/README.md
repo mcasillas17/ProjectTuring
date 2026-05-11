@@ -115,13 +115,16 @@ Approval cards appear from `approval.requested` and are removed on `approval.app
 - `lib/ui/shell/responsive_shell.dart`: polished Project Turing shell and tab integration.
 - `lib/features/settings/settings_screen.dart`: backend URL/API key form.
 - `lib/features/sessions/session_list_screen.dart`: backend session list and new-chat flow.
-- `lib/features/chat/chat_screen.dart`: message loading, sending, streaming deltas, approvals.
+- `lib/features/chat/chat_screen.dart`: active backend-connected chat screen for message loading, sending, streaming deltas, and approvals.
 - `lib/features/approvals/approval_card.dart`: approve/deny UI.
 - `lib/features/chat/model_provider_selector.dart`: provider selection control.
+- `lib/models/`: typed client models for sessions, messages, approvals, config, and streamed Turing events.
 - `lib/networking/api_client.dart`: REST protocol client and typed API interface.
 - `lib/networking/ws_client.dart`: WebSocket event stream client.
 - `lib/networking/auth_storage.dart`: secure storage abstraction.
 - `test/ui/responsive_shell_backend_test.dart`: shell regression test proving the polished shell still wraps backend chat.
+
+The legacy prototype screen under `lib/ui/chat/chat_screen.dart` is not the backend-connected chat surface used by the v1 shell integration.
 
 ## Developer Notes
 
