@@ -89,9 +89,10 @@ to track readiness before running the full smoke path.
 
 ### Flutter Client Setup
 
-See the [Flutter client guide](turing-client/turing_app/README.md). The client
-is available now, but end-to-end chat requires the backend orchestrator,
-runtime, and event stream to be running.
+See the [Flutter client integration guide](turing-client/turing_app/README.md)
+for run commands, shell integration details, settings behavior, and current
+backend-dependent limitations. The client is available now, but end-to-end chat
+requires the backend orchestrator, runtime, and event stream to be running.
 
 ### Troubleshooting
 
