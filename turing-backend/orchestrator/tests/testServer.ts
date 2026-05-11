@@ -1,8 +1,11 @@
 import Database from "better-sqlite3";
-import { buildPublicServer } from "../src/server.js";
+import { buildInternalServer, buildPublicServer } from "../src/server.js";
+import type { OrchestratorConfig } from "../src/config.js";
+import type { TuringDatabase } from "../src/db/connection.js";
 import { applyMigrations } from "../src/db/migrations.js";
+import { createSessionsService } from "../src/sessions/service.js";
 
-export const testConfig = {
+export const testConfig: OrchestratorConfig = {
   clientApiKey: "tk_test",
   internalToken: "internal",
   mcpSystemTokenGeneral: "system",
@@ -31,5 +34,24 @@ export async function buildPublicServerForTest() {
   return buildPublicServer({
     db,
     config: testConfig
+  });
+}
+
+export async function buildInternalServerForTest() {
+  const db = new Database(":memory:");
+  applyMigrations(db);
+  const app = await buildInternalServer({ db, config: testConfig });
+  return Object.assign(app, { app, db });
+}
+
+export function seedQueuedJob(db: TuringDatabase) {
+  const sessions = createSessionsService(db);
+  const session = sessions.createSession({ title: "Internal" });
+  return sessions.enqueueUserMessage({
+    sessionId: session.sessionId,
+    content: "hello",
+    agentId: "general_assistant",
+    modelProvider: "ollama",
+    model: "llama3.2"
   });
 }

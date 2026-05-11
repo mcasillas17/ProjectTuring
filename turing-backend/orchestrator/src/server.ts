@@ -7,6 +7,7 @@ import { requireBearer } from "./security/auth.js";
 import { openDatabase, type TuringDatabase } from "./db/connection.js";
 import { applyMigrations } from "./db/migrations.js";
 import { registerPublicRoutes } from "./api/routes.js";
+import { registerInternalRoutes } from "./internal/routes.js";
 
 type BroadcastHub = { broadcast(event: unknown): void };
 type ServerDeps = { config?: OrchestratorConfig; db?: TuringDatabase; hub?: BroadcastHub };
@@ -40,9 +41,16 @@ export async function buildPublicServer(deps: ServerDeps = {}) {
 
 export async function buildInternalServer(deps: ServerDeps = {}) {
   const config = deps.config ?? loadConfig();
+  const db = deps.db ?? openDatabase(config.databasePath);
+  if (!deps.db) applyMigrations(db);
+
   const app = Fastify({ loggerInstance: createLogger(config.logLevel), genReqId: () => randomUUID() });
+  app.decorate("db", db);
+  if (!deps.db) app.addHook("onClose", async () => db.close());
+
   app.addHook("preHandler", requireBearer(config.internalToken));
   app.get("/internal/health", async () => ({ ok: true }));
+  await registerInternalRoutes(app, { db, config, hub: deps.hub });
   return app;
 }
 

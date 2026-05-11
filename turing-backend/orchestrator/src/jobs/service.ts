@@ -98,6 +98,25 @@ export function createJobsService(db: TuringDatabase, config: { jobTimeoutMs: nu
       });
       tx();
       return count;
+    },
+
+    completeRun(runId: string, assistantMessageId: string, content: string): void {
+      const finishedAt = new Date().toISOString();
+      const tx = db.transaction(() => {
+        db.prepare("UPDATE messages SET content = ? WHERE id = ?").run(content, assistantMessageId);
+        db.prepare("UPDATE agent_runs SET status = 'completed', finished_at = ? WHERE id = ?").run(finishedAt, runId);
+        db.prepare("UPDATE jobs SET status = 'completed', finished_at = ? WHERE run_id = ?").run(finishedAt, runId);
+      });
+      tx();
+    },
+
+    failRun(runId: string, code: string, message: string): void {
+      const finishedAt = new Date().toISOString();
+      const tx = db.transaction(() => {
+        db.prepare("UPDATE agent_runs SET status = 'failed', error_code = ?, error_message = ?, finished_at = ? WHERE id = ?").run(code, message, finishedAt, runId);
+        db.prepare("UPDATE jobs SET status = 'failed', error_code = ?, error_message = ?, finished_at = ? WHERE run_id = ?").run(code, message, finishedAt, runId);
+      });
+      tx();
     }
   };
 }
