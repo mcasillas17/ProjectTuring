@@ -1,10 +1,29 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart'; // Import constants
+import '../../features/sessions/session_list_screen.dart';
+import '../../features/settings/settings_screen.dart';
 import '../../logic/theme_logic.dart';
-import '../chat/chat_screen.dart';
+import '../../networking/api_client.dart';
+import '../../networking/auth_storage.dart';
+import '../../networking/ws_client.dart';
 
 class ResponsiveShell extends StatefulWidget {
-  const ResponsiveShell({super.key});
+  const ResponsiveShell({
+    super.key,
+    required this.apiClient,
+    required this.wsClientFactory,
+    this.authStorage,
+    this.initialBackendUrl = 'http://localhost:3000',
+    this.initialApiKey = '',
+    this.onSettingsChanged,
+  });
+
+  final TuringApi apiClient;
+  final TuringEventSource Function() wsClientFactory;
+  final ClientAuthStorage? authStorage;
+  final String initialBackendUrl;
+  final String initialApiKey;
+  final VoidCallback? onSettingsChanged;
 
   @override
   State<ResponsiveShell> createState() => _ResponsiveShellState();
@@ -12,15 +31,6 @@ class ResponsiveShell extends StatefulWidget {
 
 class _ResponsiveShellState extends State<ResponsiveShell> {
   int _selectedIndex = 0;
-
-  // Placeholder Screens
-  final List<Widget> _screens = [
-    const ChatScreen(),
-    const Center(child: Text("IoT Devices Dashboard", style: TextStyle(fontSize: 20))),
-    const Center(child: Text("Stats & Usage", style: TextStyle(fontSize: 20))),
-    const Center(child: Text("Integrations Status", style: TextStyle(fontSize: 20))),
-    const Center(child: Text("Settings", style: TextStyle(fontSize: 20))),
-  ];
 
   void _onItemTapped(int index) {
     setState(() {
@@ -32,17 +42,13 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
     final isDesktop = width > 800;
-    
+
     // Grab the primary color for highlights
     final primaryColor = Theme.of(context).primaryColor;
 
     return Scaffold(
       // --- MOBILE TOP BAR ---
-      appBar: isDesktop
-          ? null
-          : AppBar(
-              title: const Text("Project Turing"),
-            ),
+      appBar: isDesktop ? null : AppBar(title: const Text("Project Turing")),
 
       // --- MOBILE DRAWER ---
       drawer: isDesktop
@@ -60,26 +66,33 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
                       children: [
                         const Text(
                           "Turing OS",
-                          style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(height: 10),
                         // Mobile Theme Toggle
                         Row(
                           children: [
-                            const Text("Dark Mode", style: TextStyle(color: Colors.white70)),
+                            const Text(
+                              "Dark Mode",
+                              style: TextStyle(color: Colors.white70),
+                            ),
                             const Spacer(),
                             Switch(
                               value: ThemeLogic().isDark,
-                              activeColor: Colors.white,
+                              activeThumbColor: Colors.white,
                               activeTrackColor: Colors.white24,
                               onChanged: (val) => ThemeLogic().toggleTheme(val),
                             ),
                           ],
-                        )
+                        ),
                       ],
                     ),
                   ),
-                  
+
                   // Menu Items
                   _buildMobileNavItem(Icons.chat_bubble, "Chat", 0),
                   _buildMobileNavItem(Icons.smart_toy, "Devices", 1),
@@ -109,7 +122,11 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 20),
                     child: IconButton(
-                      icon: Icon(ThemeLogic().isDark ? Icons.light_mode : Icons.dark_mode),
+                      icon: Icon(
+                        ThemeLogic().isDark
+                            ? Icons.light_mode
+                            : Icons.dark_mode,
+                      ),
                       tooltip: "Toggle Theme",
                       onPressed: () {
                         ThemeLogic().toggleTheme(!ThemeLogic().isDark);
@@ -147,10 +164,45 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
           if (isDesktop) const VerticalDivider(thickness: 1, width: 1),
 
           // Main Content
-          Expanded(child: _screens[_selectedIndex]),
+          Expanded(child: _buildSelectedScreen()),
         ],
       ),
     );
+  }
+
+  Widget _buildSelectedScreen() {
+    return switch (_selectedIndex) {
+      0 => SessionListScreen(
+        apiClient: widget.apiClient,
+        wsClientFactory: widget.wsClientFactory,
+        embedded: true,
+      ),
+      1 => const Center(
+        child: Text("IoT Devices Dashboard", style: TextStyle(fontSize: 20)),
+      ),
+      2 => const Center(
+        child: Text("Stats & Usage", style: TextStyle(fontSize: 20)),
+      ),
+      3 => const Center(
+        child: Text("Integrations Status", style: TextStyle(fontSize: 20)),
+      ),
+      4 =>
+        widget.authStorage == null
+            ? const Center(
+                child: Text(
+                  "Settings unavailable",
+                  style: TextStyle(fontSize: 20),
+                ),
+              )
+            : SettingsScreen(
+                authStorage: widget.authStorage!,
+                initialBackendUrl: widget.initialBackendUrl,
+                initialApiKey: widget.initialApiKey,
+                onSaved: widget.onSettingsChanged,
+                embedded: true,
+              ),
+      _ => const SizedBox.shrink(),
+    };
   }
 
   // FIXED: Using AppColors.menuSelectedLight/Dark
@@ -159,16 +211,16 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Pick the specific color based on the theme
-    final selectedTextColor = isDark 
-        ? AppColors.menuSelectedDark 
+    final selectedTextColor = isDark
+        ? AppColors.menuSelectedDark
         : AppColors.menuSelectedLight;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         // Solid background to look like a button
-        color: isSelected 
-            ? (isDark ? Colors.grey[800] : Colors.grey[200]) 
+        color: isSelected
+            ? (isDark ? Colors.grey[800] : Colors.grey[200])
             : null,
         borderRadius: BorderRadius.circular(8),
       ),
@@ -182,9 +234,7 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
         title: Text(
           label,
           style: TextStyle(
-            color: isSelected 
-                ? selectedTextColor 
-                : Colors.grey,
+            color: isSelected ? selectedTextColor : Colors.grey,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
         ),

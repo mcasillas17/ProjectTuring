@@ -15,7 +15,7 @@ class ThemeLogic {
     mode.value = isDark ? ThemeMode.dark : ThemeMode.light;
     // Todo: Add logic here later to save preference to SharedPreferences
   }
-  
+
   // Helper to check current status
   bool get isDark => mode.value == ThemeMode.dark;
 }
