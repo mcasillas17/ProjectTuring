@@ -1,0 +1,13 @@
+.env
+.env.*
+*.env
+!.env.example
+!**/.env.example
+.runtime/
+data/turing.db*
+sandbox/*
+!sandbox/.gitkeep
+node_modules/
+dist/
+coverage/
+*.log

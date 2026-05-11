@@ -166,3 +166,9 @@ Desktop.ini
 # 🌳 LOCAL WORKTREES
 # ==========================
 .worktrees/
+*.env
+!**/.env.example
+.runtime/
+turing-backend/.runtime/
+data/turing.db*
+turing-backend/data/turing.db*

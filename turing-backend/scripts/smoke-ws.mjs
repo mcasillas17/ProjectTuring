@@ -2,7 +2,7 @@ import WebSocket from "ws";
 
 /**
  * smoke-ws.mjs
- * 
+ *
  * Verifies WebSocket /ws with token auth, live event streaming, and replay.
  * Part of Task 16: End-to-end Docker smoke and local documentation.
  */
@@ -21,7 +21,7 @@ async function connectAndHello(lastSequence, waitForCompleted = false) {
     // Platform adaptation: some platforms might need token in query param or subprotocol
     const url = `${WS_URL}?token=${encodeURIComponent(apiKey)}`;
     const ws = new WebSocket(url);
-    
+
     let ack;
     const timeout = setTimeout(() => {
       ws.close();
@@ -35,20 +35,20 @@ async function connectAndHello(lastSequence, waitForCompleted = false) {
 
     ws.on("message", (raw) => {
       const message = JSON.parse(raw.toString());
-      
+
       if (message.type === "hello_ack") {
         console.log(`[WS] Received hello_ack. Latest sequence: ${message.latestSequence}`);
         ack = message;
-        
+
         // If we are just checking replay and the event is already in replayedEvents
-        if (waitForCompleted && Array.isArray(message.replayedEvents) && message.replayedEvents.some((event) => 
+        if (waitForCompleted && Array.isArray(message.replayedEvents) && message.replayedEvents.some((event) =>
           event.type === "message.completed" && event.runId === runId)) {
           console.log("[WS] Found message.completed in replayedEvents");
           clearTimeout(timeout);
           ws.close();
           resolve(message);
         }
-        
+
         if (!waitForCompleted) {
           clearTimeout(timeout);
           ws.close();
@@ -82,11 +82,11 @@ async function connectAndHello(lastSequence, waitForCompleted = false) {
 
 try {
   console.log(`[Smoke] Testing WebSocket for session ${sessionId}, waiting for run ${runId}...`);
-  
+
   // 1. Connect and wait for live completion
   const firstAck = await connectAndHello(0, true);
   const latestSequence = firstAck.latestSequence ?? 0;
-  
+
   if (latestSequence < 1) {
     throw new Error("Expected at least one persisted event before replay smoke");
   }
