@@ -1,12 +1,13 @@
 # Project Turing v1.0 Integration Checklist
 
-Use this checklist to validate the integration of Tasks 1-15 as they are merged into `pturing-v1-base`.
+Use this checklist to validate the integration of Tasks 1-16 as they are merged into `pturing-v1-base`.
 
 ## 1. Foundation (Task 1-2)
 - [ ] `turing-backend/scripts/init.sh` exists and generates a valid `.env` with random secrets.
-- [ ] `turing-backend/infra/docker-compose.yml` is valid (`docker compose config`) and defines the 4 core services.
+- [ ] `turing-backend/scripts/dev.sh` exists and starts the local v1 backend stack.
+- [ ] `turing-backend/infra/docker-compose.yml` exists after backend foundation integration, is valid (`docker compose -f infra/docker-compose.yml config --quiet`), and defines the core services.
 - [ ] `turing-backend/shared-types` exists and `npm run build` generates `dist/` with valid type declarations.
-- [ ] `turing-client/flutter_app` contains the migrated Flutter source and `pubspec.yaml` uses the new package name.
+- [ ] `turing-client/turing_app` contains the preserved Flutter shell and backend-connected client surfaces.
 
 ## 2. Orchestrator (Task 3-6)
 - [ ] `turing-orchestrator` container builds and starts without immediate crash.
@@ -31,10 +32,10 @@ Use this checklist to validate the integration of Tasks 1-15 as they are merged 
 - [ ] `audit_logs` table contains entries for `auth.failed`, `tool.call.before`, and `tool.call.after`.
 
 ## 5. Flutter Client (Task 15)
-- [ ] Flutter app correctly persists the API key and URL in secure storage.
-- [ ] Chat UI displays a loading state while waiting for the first `message.started`.
-- [ ] Approval cards display the correct tool name and arguments.
-- [ ] Tapping "Approve" triggers a REST call that moves the run state to `running`.
+- [ ] Flutter-specific setup and behavior are documented in `turing-client/turing_app/README.md`.
+- [ ] The existing polished `ResponsiveShell` remains the main authenticated app surface.
+- [ ] The Chat and Settings tabs use backend-connected client surfaces once credentials are configured.
+- [ ] Devices, Stats, and Integrations remain placeholder tabs until their backend contracts are defined.
 
 ## 6. End-to-End (Task 16)
 - [ ] `turing-backend/scripts/smoke.sh` passes 100% in a clean Docker environment.
@@ -45,8 +46,8 @@ Use this checklist to validate the integration of Tasks 1-15 as they are merged 
 
 ## Verification Best Practices
 
-- **Log Monitoring**: Always keep a terminal open with `docker compose logs -f` during integration tests.
+- **Log Monitoring**: During full backend smoke tests, keep a terminal open with `cd turing-backend && docker compose -f infra/docker-compose.yml logs -f`.
 - **Database Inspection**: Use `sqlite3 turing-backend/data/turing.db` to verify that tables are being populated as expected.
 - **Network Isolation**: Verify that `turing-agent-runtime-general` cannot reach MCP servers it is not authorized for by checking Docker network configurations.
 - **Ollama Mocking**: If Ollama is unavailable, verify that the runtime fails gracefully with a `model_unavailable` error code rather than an unhandled exception.
-- **Clean Starts**: Frequently use `scripts/reset.sh` to ensure that migrations and initialization work from a zero-state.
+- **Clean Starts**: Once backend reset tooling lands, frequently use `scripts/reset.sh` to ensure that migrations and initialization work from a zero-state.
