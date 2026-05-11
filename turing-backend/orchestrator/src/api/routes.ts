@@ -6,7 +6,7 @@ import type {
   RawRequestDefaultExpression,
   RawServerBase
 } from "fastify";
-import type { AgentId, ModelProviderId } from "@turing/shared-types";
+import type { AgentId, ModelProviderId, TuringEvent } from "@turing/shared-types";
 import type { OrchestratorConfig } from "../config.js";
 import type { TuringDatabase } from "../db/connection.js";
 import { listToolCalls, getSessionById } from "../db/repositories.js";
@@ -15,7 +15,7 @@ import { createEventsService } from "../events/service.js";
 import { createJobsService } from "../jobs/service.js";
 import { createSessionsService } from "../sessions/service.js";
 
-type BroadcastHub = { broadcast(event: unknown): void };
+type BroadcastHub = { broadcast(event: TuringEvent): void };
 type RegisterPublicRoutesDeps = { db: TuringDatabase; config: OrchestratorConfig; hub?: BroadcastHub };
 type CreateSessionBody = { title?: unknown };
 type SendMessageBody = { content?: unknown; modelProvider?: unknown; model?: unknown };

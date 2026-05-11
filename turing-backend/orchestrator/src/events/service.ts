@@ -57,7 +57,7 @@ export function createEventsService(db: TuringDatabase) {
 
     replay(sessionId: string, afterSequence: number): TuringEvent[] {
       const rows = db
-        .prepare("SELECT * FROM events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT 500")
+        .prepare("SELECT id, session_id, run_id, trace_id, sequence, type, payload_json, created_at FROM events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT 500")
         .all(sessionId, afterSequence) as EventRow[];
       return rows.map(toEvent);
     }

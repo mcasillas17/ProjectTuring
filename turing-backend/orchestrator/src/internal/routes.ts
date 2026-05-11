@@ -7,7 +7,7 @@ import type {
   RawRequestDefaultExpression,
   RawServerBase
 } from "fastify";
-import { isTuringEventType, type AgentId, type ToolCallBeacon, type ToolPolicyDecision, type TuringEventInput } from "@turing/shared-types";
+import { isTuringEventType, type AgentId, type ToolCallBeacon, type ToolPolicyDecision, type TuringEvent, type TuringEventInput } from "@turing/shared-types";
 import type { OrchestratorConfig } from "../config.js";
 import type { TuringDatabase } from "../db/connection.js";
 import { createAuditService } from "../audit/service.js";
@@ -15,7 +15,7 @@ import { createEventsService } from "../events/service.js";
 import { createJobsService, RunStateConflictError } from "../jobs/service.js";
 import { createSessionsService } from "../sessions/service.js";
 
-type BroadcastHub = { broadcast(event: unknown): void };
+type BroadcastHub = { broadcast(event: TuringEvent): void };
 type RegisterInternalRoutesDeps = { db: TuringDatabase; config: OrchestratorConfig; hub?: BroadcastHub };
 type RunContextRow = { session_id: string; trace_id: string; assistant_message_id: string | null; agent_id: AgentId };
 type NextJobQuery = { agent?: string };

@@ -8,9 +8,9 @@ import { openDatabase, type TuringDatabase } from "./db/connection.js";
 import { applyMigrations } from "./db/migrations.js";
 import { registerPublicRoutes } from "./api/routes.js";
 import { registerInternalRoutes } from "./internal/routes.js";
+import { createWsHub, registerWebSocket } from "./ws/gateway.js";
 
-type BroadcastHub = { broadcast(event: unknown): void };
-type ServerDeps = { config?: OrchestratorConfig; db?: TuringDatabase; hub?: BroadcastHub };
+type ServerDeps = { config?: OrchestratorConfig; db?: TuringDatabase; hub?: ReturnType<typeof createWsHub> };
 
 function isAuthExemptPath(requestUrl: string, routeUrl?: string): boolean {
   const path = requestUrl.split("?", 1)[0];
@@ -35,6 +35,7 @@ export async function buildPublicServer(deps: ServerDeps = {}) {
     await requireBearer(config.clientApiKey)(request, reply);
   });
 
+  if (deps.hub) await registerWebSocket(app, { db, clientApiKey: config.clientApiKey, hub: deps.hub });
   await registerPublicRoutes(app, { db, config, hub: deps.hub });
   return app;
 }
@@ -59,9 +60,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const db = openDatabase(config.databasePath);
   applyMigrations(db);
 
-  const publicServer = await buildPublicServer({ config, db });
-  const internalServer = await buildInternalServer({ config, db });
+  const hub = createWsHub();
+  const publicServer = await buildPublicServer({ config, db, hub });
+  const internalServer = await buildInternalServer({ config, db, hub });
 
   await internalServer.listen({ host: "0.0.0.0", port: config.internalPort });
   await publicServer.listen({ host: "0.0.0.0", port: config.publicPort });
+
+  process.once("SIGTERM", async () => {
+    await Promise.all([publicServer.close(), internalServer.close()]);
+    db.close();
+  });
 }
