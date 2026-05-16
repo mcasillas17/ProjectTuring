@@ -14,6 +14,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const (
+	defaultMaxConcurrentRuns = 1
+	maxWorkerConcurrentRuns  = 128
+)
+
 type Server struct {
 	turingv1.UnimplementedRuntimeServiceServer
 	repo    *repository.Repository
@@ -55,7 +60,10 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 	}
 	maxConcurrent := int(ready.MaxConcurrentRuns)
 	if maxConcurrent <= 0 {
-		maxConcurrent = 1
+		maxConcurrent = defaultMaxConcurrentRuns
+	}
+	if maxConcurrent > maxWorkerConcurrentRuns {
+		maxConcurrent = maxWorkerConcurrentRuns
 	}
 	commands := make(chan *turingv1.RuntimeCommand, maxConcurrent)
 	s.mu.Lock()
@@ -165,10 +173,12 @@ func (s *Server) requeueAssignments(assignments []assignment) {
 }
 
 func (s *Server) DispatchPending(ctx context.Context) error {
+	dispatchCtx, cancel := withDefaultTimeout(ctx, 5*time.Second)
+	defer cancel()
 	workers := s.snapshotWorkers()
 	for _, entry := range workers {
 		for {
-			assigned, noJob, err := s.dispatchToWorker(ctx, entry.workerID, entry.worker)
+			assigned, noJob, err := s.dispatchToWorker(dispatchCtx, entry.workerID, entry.worker)
 			if err != nil {
 				return err
 			}
@@ -297,7 +307,11 @@ func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate
 		if isGenericTerminalEvent(value.Event) {
 			return status.Error(codes.InvalidArgument, "terminal run events must use runtime terminal updates")
 		}
-		event, err := s.repo.AppendRuntimeEvent(ctx, value.Event)
+		eventUpdate, err := s.normalizeRuntimeEvent(ctx, value.Event)
+		if err != nil {
+			return err
+		}
+		event, err := s.repo.AppendRuntimeEvent(ctx, eventUpdate)
 		if err != nil {
 			return err
 		}
@@ -311,10 +325,24 @@ func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate
 	case *turingv1.RuntimeUpdate_RunFailed:
 		return s.handleRunFailed(ctx, value.RunFailed)
 	case *turingv1.RuntimeUpdate_RunCancelledAck:
-		return nil
+		return s.handleRunCancelledAck(ctx, value.RunCancelledAck)
 	default:
 		return status.Error(codes.InvalidArgument, "unsupported runtime update")
 	}
+}
+
+func (s *Server) normalizeRuntimeEvent(ctx context.Context, event *turingv1.TuringEvent) (*turingv1.TuringEvent, error) {
+	if event == nil || event.RunId == "" {
+		return nil, status.Error(codes.InvalidArgument, "runtime event run_id is required")
+	}
+	run, err := s.repo.GetRun(ctx, event.RunId)
+	if err != nil {
+		return nil, err
+	}
+	out := *event
+	out.SessionId = run.SessionID
+	out.TraceId = run.TraceID
+	return &out, nil
 }
 
 func isGenericTerminalEvent(event *turingv1.TuringEvent) bool {
@@ -329,6 +357,20 @@ func isGenericTerminalEvent(event *turingv1.TuringEvent) bool {
 	default:
 		return false
 	}
+}
+
+func (s *Server) handleRunCancelledAck(ctx context.Context, ack *turingv1.RuntimeCancelledAck) error {
+	if ack == nil || ack.RunId == "" {
+		return status.Error(codes.InvalidArgument, "run_cancelled_ack is required")
+	}
+	run, err := s.repo.GetRun(ctx, ack.RunId)
+	if err != nil {
+		return err
+	}
+	if run.Status != "cancelled" {
+		return status.Error(codes.FailedPrecondition, "run is not cancelled")
+	}
+	return nil
 }
 
 func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.RuntimeRunCompleted) error {

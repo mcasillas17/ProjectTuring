@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type harness struct {
@@ -419,6 +420,57 @@ func TestRuntimeRejectsGenericTerminalEvents(t *testing.T) {
 	}
 }
 
+func TestRuntimeEventUsesPersistedRunSessionAndTrace(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "event session")
+	otherSession, err := h.repo.CreateSession(context.Background(), "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := structpb.NewStruct(map[string]any{"delta": "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_Event{Event: &turingv1.TuringEvent{
+		SessionId: otherSession.SessionID,
+		RunId:     enqueued.RunID,
+		TraceId:   "trace_spoofed",
+		Type:      turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_DELTA,
+		Payload:   payload,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	replayed, _, err := h.repo.ReplayEvents(context.Background(), enqueued.SessionID, enqueued.QueuedEvent.Sequence, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range replayed {
+		if event.Type == "message.delta" && event.RunID.Valid && event.RunID.String == enqueued.RunID {
+			if event.SessionID != enqueued.SessionID || event.TraceID != enqueued.TraceID {
+				t.Fatalf("event used spoofed metadata: %+v", event)
+			}
+			return
+		}
+	}
+	t.Fatalf("message.delta not replayed for run session: %+v", replayed)
+}
+
+func TestRuntimeRejectsEventsWithoutRunID(t *testing.T) {
+	h := newHarness(t)
+	session, err := h.repo.CreateSession(context.Background(), "Runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_Event{Event: &turingv1.TuringEvent{
+		SessionId: session.SessionID,
+		TraceId:   "trace_session",
+		Type:      turingv1.TuringEventType_TURING_EVENT_TYPE_SYSTEM,
+	}}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("empty-run event error = %v, want InvalidArgument", err)
+	}
+}
+
 func TestWorkerCannotCompleteAnotherWorkersRun(t *testing.T) {
 	h := newHarness(t)
 	first := h.enqueueRun(t, "first")
@@ -464,6 +516,22 @@ func TestWorkerCannotCompleteAnotherWorkersRun(t *testing.T) {
 	}
 	if run.Status != "running" {
 		t.Fatalf("first run status = %q, want running after wrong-worker completion", run.Status)
+	}
+}
+
+func TestRunCancelledAckRequiresPersistedCancellation(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "bad ack")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCancelledAck{RunCancelledAck: &turingv1.RuntimeCancelledAck{RunId: enqueued.RunID}}})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("cancel ack error = %v, want FailedPrecondition", err)
+	}
+	run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("run status = %q, want running", run.Status)
 	}
 }
 
