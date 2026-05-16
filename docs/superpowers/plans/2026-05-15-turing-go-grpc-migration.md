@@ -1144,7 +1144,7 @@ Expected: FAIL with missing module or undefined package errors.
 
 - [ ] **Step 3: Update the root Go module and add foundation code**
 
-Update root `go.mod` to include the additional Task 2 dependencies:
+Update root `go.mod` to include only the dependencies imported by Task 1/2 code:
 
 ```go
 module github.com/mcasillas17/TuringAgent
@@ -1152,13 +1152,13 @@ module github.com/mcasillas17/TuringAgent
 go 1.23
 
 require (
-	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/oklog/ulid/v2 v2.1.0
-	golang.org/x/sync v0.10.0
 	google.golang.org/grpc v1.69.2
 	google.golang.org/protobuf v1.36.1
 )
 ```
+
+Do not add SQLite or errgroup dependencies in Task 2; Task 3 and Task 9 add them when their code first imports them.
 
 Create `turing-backend/orchestrator-go/internal/config/config.go`:
 
@@ -1579,6 +1579,8 @@ git commit -m "feat: add Go backend foundation packages" -m "Co-authored-by: Cop
 ## Task 3: SQLite migrations and repositories
 
 **Files:**
+- Modify: `go.mod`
+- Modify: `go.sum`
 - Create: `turing-backend/orchestrator-go/internal/db/schema/0001_initial.sql`
 - Create: `turing-backend/orchestrator-go/internal/db/schema/0002_go_runtime.sql`
 - Create: `turing-backend/orchestrator-go/internal/db/connection.go`
@@ -1719,7 +1721,18 @@ go test ./orchestrator-go/internal/repository
 
 Expected: FAIL because `db` and repository packages do not exist.
 
-- [ ] **Step 3: Copy the current initial schema and add Go runtime migration**
+- [ ] **Step 3: Add the SQLite driver dependency**
+
+Run from the repository root before adding DB code:
+
+```bash
+go get github.com/mattn/go-sqlite3@v1.14.24
+go mod tidy
+```
+
+Expected: root `go.mod` includes `github.com/mattn/go-sqlite3 v1.14.24` because `connection.go` imports `_ "github.com/mattn/go-sqlite3"` in this task.
+
+- [ ] **Step 4: Copy the current initial schema and add Go runtime migration**
 
 Copy `turing-backend/orchestrator/migrations/0001_initial.sql` to `turing-backend/orchestrator-go/internal/db/schema/0001_initial.sql`.
 
@@ -1734,7 +1747,7 @@ ALTER TABLE jobs ADD COLUMN lease_expires_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_jobs_lease ON jobs(status, lease_expires_at);
 ```
 
-- [ ] **Step 4: Add DB connection and migration runner**
+- [ ] **Step 5: Add DB connection and migration runner**
 
 Create `turing-backend/orchestrator-go/internal/db/connection.go`:
 
@@ -1830,7 +1843,7 @@ func ApplyMigrations(ctx context.Context, database *DB) error {
 }
 ```
 
-- [ ] **Step 5: Add repository methods used by services**
+- [ ] **Step 6: Add repository methods used by services**
 
 Create `turing-backend/orchestrator-go/internal/repository/sessions.go`, `events.go`, `runs.go`, and `jobs.go` with one `Repository` type. Include these exact exported types and methods:
 
@@ -2124,7 +2137,7 @@ func (r *Repository) RecordToolCallAfter(ctx context.Context, toolCallID string,
 func (r *Repository) RecordAudit(ctx context.Context, correlationID string, actorType string, actorID string, action string, target string, payloadJSON string) error
 ```
 
-- [ ] **Step 6: Run repository tests**
+- [ ] **Step 7: Run repository tests**
 
 Run:
 
@@ -2135,12 +2148,12 @@ go test ./orchestrator-go/internal/db ./orchestrator-go/internal/repository
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit persistence foundation**
+- [ ] **Step 8: Commit persistence foundation**
 
 Run:
 
 ```bash
-git add turing-backend/orchestrator-go/internal/db turing-backend/orchestrator-go/internal/repository
+git add go.mod go.sum turing-backend/orchestrator-go/internal/db turing-backend/orchestrator-go/internal/repository
 git commit -m "feat: add Go orchestrator SQLite repositories" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -3163,6 +3176,8 @@ git commit -m "feat: wire Go orchestrator gRPC server" -m "Co-authored-by: Copil
 ## Task 9: Go agent-runtime model and MCP execution
 
 **Files:**
+- Modify: `go.mod`
+- Modify: `go.sum`
 - Create: `turing-backend/agent-runtime-go/internal/config/config.go`
 - Create: `turing-backend/agent-runtime-go/internal/orchestrator/client.go`
 - Create: `turing-backend/agent-runtime-go/internal/worker/worker.go`
@@ -3303,7 +3318,18 @@ Never call chained unchecked assertions such as `obj["message"].(map[string]any)
 
 In `openai_compatible.go`, parse `data:` SSE lines, handle `[DONE]`, decode JSON into a narrow struct with `json.RawMessage`, and validate `choices[0].delta.content` with explicit length checks.
 
-- [ ] **Step 4: Implement MCP client and authorized tool runner**
+- [ ] **Step 4: Add the errgroup dependency**
+
+Run from the repository root before creating the tool runner:
+
+```bash
+go get golang.org/x/sync@v0.10.0
+go mod tidy
+```
+
+Expected: root `go.mod` includes `golang.org/x/sync v0.10.0` because `tools/runner.go` imports `golang.org/x/sync/errgroup` in this task.
+
+- [ ] **Step 5: Implement MCP client and authorized tool runner**
 
 Create `mcp/client.go` that:
 
@@ -3323,7 +3349,7 @@ Create `tools/runner.go` that:
 - sends after beacon with `completed`, `failed`, or `denied`;
 - uses `errgroup.WithContext` for any concurrent tool metadata fetches.
 
-- [ ] **Step 5: Implement worker and agent executor**
+- [ ] **Step 6: Implement worker and agent executor**
 
 Create `worker/worker.go` that:
 
@@ -3363,7 +3389,7 @@ COPY --from=build /out/turing-agent-runtime-go /app/turing-agent-runtime-go
 ENTRYPOINT ["/app/turing-agent-runtime-go"]
 ```
 
-- [ ] **Step 6: Run runtime package tests**
+- [ ] **Step 7: Run runtime package tests**
 
 Run:
 
@@ -3374,12 +3400,12 @@ go build ./turing-backend/agent-runtime-go/cmd/runtime
 
 Expected: PASS and successful build.
 
-- [ ] **Step 7: Commit Go agent runtime**
+- [ ] **Step 8: Commit Go agent runtime**
 
 Run:
 
 ```bash
-git add turing-backend/agent-runtime-go
+git add go.mod go.sum turing-backend/agent-runtime-go
 git commit -m "feat: add Go agent runtime worker" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
