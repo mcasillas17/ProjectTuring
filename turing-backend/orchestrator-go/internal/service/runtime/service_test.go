@@ -150,11 +150,60 @@ func TestCancelRunSendsRuntimeCommand(t *testing.T) {
 	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-1", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
 		t.Fatal(err)
 	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		return cmd.GetWorkerAccepted() != nil
+	})
 	h.service.CancelRun(context.Background(), runID, "client_cancelled")
 	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
 		cancel := cmd.GetRunCancelled()
 		return cancel != nil && cancel.RunId == runID
 	})
+}
+
+func TestCancelRunDoesNotQueueForFutureWorker(t *testing.T) {
+	h := newHarness(t)
+	runID := h.createRunningRun(t, "already cancelled")
+	h.service.CancelRun(context.Background(), runID, "client_cancelled")
+
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithCancel(h.internalContext())
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-after-cancel", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	accepted := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		return cmd.GetWorkerAccepted() != nil
+	})
+	if accepted.GetWorkerAccepted().WorkerId != "worker-after-cancel" {
+		t.Fatalf("accepted worker = %+v", accepted.GetWorkerAccepted())
+	}
+
+	received := make(chan struct {
+		cmd *turingv1.RuntimeCommand
+		err error
+	}, 1)
+	go func() {
+		cmd, err := stream.Recv()
+		received <- struct {
+			cmd *turingv1.RuntimeCommand
+			err error
+		}{cmd: cmd, err: err}
+	}()
+	select {
+	case result := <-received:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if cancel := result.cmd.GetRunCancelled(); cancel != nil && cancel.RunId == runID {
+			t.Fatalf("received queued cancellation for future worker: %+v", cancel)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 func recvUntil(t *testing.T, stream turingv1.RuntimeService_ConnectWorkerClient, match func(*turingv1.RuntimeCommand) bool) *turingv1.RuntimeCommand {

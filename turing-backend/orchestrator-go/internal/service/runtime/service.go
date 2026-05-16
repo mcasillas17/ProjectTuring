@@ -12,10 +12,9 @@ import (
 
 type Server struct {
 	turingv1.UnimplementedRuntimeServiceServer
-	repo           *repository.Repository
-	mu             sync.Mutex
-	workers        map[string]chan *turingv1.RuntimeCommand
-	pendingCancels []*turingv1.RuntimeCommand
+	repo    *repository.Repository
+	mu      sync.Mutex
+	workers map[string]chan *turingv1.RuntimeCommand
 }
 
 func New(repo *repository.Repository) *Server {
@@ -35,8 +34,6 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 	commands := make(chan *turingv1.RuntimeCommand, 8)
 	s.mu.Lock()
 	s.workers[ready.WorkerId] = commands
-	pendingCancels := append([]*turingv1.RuntimeCommand(nil), s.pendingCancels...)
-	s.pendingCancels = nil
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -46,9 +43,6 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 	}()
 	if err := stream.Send(&turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_WorkerAccepted{WorkerAccepted: &turingv1.RuntimeWorkerAccepted{WorkerId: ready.WorkerId}}}); err != nil {
 		return err
-	}
-	for _, cmd := range pendingCancels {
-		commands <- cmd
 	}
 	if job, err := s.repo.ClaimNextJob(ctx, "general_assistant", ready.WorkerId); err == nil && job.JobID != "" {
 		commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunAssigned{RunAssigned: mapJob(job)}}
@@ -85,10 +79,6 @@ func (s *Server) CancelRun(ctx context.Context, runID string, reason string) {
 	command := &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunCancelled{RunCancelled: &turingv1.RuntimeRunCancelled{RunId: runID, Reason: reason}}}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.workers) == 0 {
-		s.pendingCancels = append(s.pendingCancels, command)
-		return
-	}
 	for _, commands := range s.workers {
 		select {
 		case commands <- command:
