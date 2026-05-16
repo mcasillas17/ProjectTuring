@@ -73,7 +73,10 @@ func (r *Repository) ApproveApproval(ctx context.Context, approvalID string, app
 	if err != nil {
 		return ApprovalRecord{}, err
 	}
-	changed, _ := result.RowsAffected()
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
 	if changed != 1 {
 		return ApprovalRecord{}, errors.New("approval is not pending")
 	}
@@ -103,7 +106,10 @@ func (r *Repository) DenyApproval(ctx context.Context, approvalID string, decide
 	if err != nil {
 		return ApprovalRecord{}, err
 	}
-	changed, _ := result.RowsAffected()
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
 	if changed != 1 {
 		return ApprovalRecord{}, errors.New("approval is not pending")
 	}
@@ -133,7 +139,10 @@ func (r *Repository) ConsumeApproval(ctx context.Context, approvalID string, con
 	if err != nil {
 		return ApprovalRecord{}, err
 	}
-	changed, _ := result.RowsAffected()
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
 	if changed != 1 {
 		return ApprovalRecord{}, errors.New("approval is not approved")
 	}

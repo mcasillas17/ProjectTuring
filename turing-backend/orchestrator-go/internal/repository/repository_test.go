@@ -154,3 +154,54 @@ func TestCancelRunUpdatesRunAndJob(t *testing.T) {
 		t.Fatalf("bad cancelled job: status=%q error_code=%q error_message=%q", jobStatus, errorCode, errorMessage)
 	}
 }
+
+func TestApprovalLifecycleRecordsTokenAndUpdatesRun(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Approvals")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "needs approval", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RecordToolCallBefore(ctx, ToolCallRecord{ToolCallID: "tool_1", RunID: enqueued.RunID}, "general_assistant", "mcp-files", "write_file", `{"path":"notes.txt"}`, "args_hash_1"); err != nil {
+		t.Fatal(err)
+	}
+	approval, err := repo.CreateApproval(ctx, enqueued.RunID, "tool_1", "general_assistant", "write_file", `{"path":"notes.txt"}`, "args_hash_1", "2099-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := repo.ApproveApproval(ctx, approval.ApprovalID, "approval_token_1", "2026-05-15T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != "approved" || approved.ApprovalToken != "approval_token_1" {
+		t.Fatalf("bad approval record: %+v", approved)
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("run status = %q", run.Status)
+	}
+	var approvalJTI, approvalToken string
+	if err := database.QueryRowContext(ctx, `SELECT approval_jti, approval_token FROM approvals WHERE id = ?`, approval.ApprovalID).Scan(&approvalJTI, &approvalToken); err != nil {
+		t.Fatalf("query approval token fields: %v", err)
+	}
+	if approvalJTI != approval.ApprovalID || approvalToken != "approval_token_1" {
+		t.Fatalf("bad token fields: approval_jti=%q approval_token=%q", approvalJTI, approvalToken)
+	}
+	consumed, err := repo.ConsumeApproval(ctx, approval.ApprovalID, "2026-05-15T00:01:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consumed.Status != "consumed" {
+		t.Fatalf("approval status after consume = %q", consumed.Status)
+	}
+}

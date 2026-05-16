@@ -22,7 +22,10 @@ func (r *Repository) MarkRunRunning(ctx context.Context, runID string) error {
 	if err != nil {
 		return err
 	}
-	changed, _ := result.RowsAffected()
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if changed != 1 {
 		return errors.New("run is not queued")
 	}

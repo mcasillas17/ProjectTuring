@@ -45,7 +45,10 @@ func (r *Repository) RecordToolCallAfter(ctx context.Context, toolCallID string,
 	if err != nil {
 		return err
 	}
-	changed, _ := result.RowsAffected()
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if changed != 1 {
 		return errors.New("tool call not found")
 	}
