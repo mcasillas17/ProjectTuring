@@ -1,0 +1,77 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/ids"
+)
+
+type Event struct {
+	EventID     string
+	SessionID   string
+	RunID       sql.NullString
+	TraceID     string
+	Sequence    int64
+	Type        string
+	PayloadJSON string
+	CreatedAt   string
+}
+
+type AppendEventInput struct {
+	SessionID   string
+	RunID       string
+	TraceID     string
+	Type        string
+	PayloadJSON string
+}
+
+func (r *Repository) AppendEvent(ctx context.Context, input AppendEventInput) (Event, error) {
+	createdAt := now()
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Event{}, err
+	}
+	defer tx.Rollback()
+	var next int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE session_id = ?`, input.SessionID).Scan(&next); err != nil {
+		return Event{}, err
+	}
+	event := Event{EventID: ids.New("evt"), SessionID: input.SessionID, TraceID: input.TraceID, Sequence: next, Type: input.Type, PayloadJSON: input.PayloadJSON, CreatedAt: createdAt}
+	var runID any
+	if input.RunID != "" {
+		event.RunID = sql.NullString{String: input.RunID, Valid: true}
+		runID = input.RunID
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events (id, session_id, run_id, trace_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, event.EventID, event.SessionID, runID, event.TraceID, event.Sequence, event.Type, event.PayloadJSON, event.CreatedAt); err != nil {
+		return Event{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Event{}, err
+	}
+	return event, nil
+}
+
+func (r *Repository) ReplayEvents(ctx context.Context, sessionID string, afterSequence int64, limit int) ([]Event, int64, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 500
+	}
+	var latest int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) FROM events WHERE session_id = ?`, sessionID).Scan(&latest); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, session_id, run_id, trace_id, sequence, type, payload_json, created_at FROM events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT ?`, sessionID, afterSequence, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var events []Event
+	for rows.Next() {
+		var event Event
+		if err := rows.Scan(&event.EventID, &event.SessionID, &event.RunID, &event.TraceID, &event.Sequence, &event.Type, &event.PayloadJSON, &event.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		events = append(events, event)
+	}
+	return events, latest, rows.Err()
+}
