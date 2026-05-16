@@ -323,6 +323,104 @@ func (s *failingAssignmentStream) Recv() (*turingv1.RuntimeUpdate, error) {
 
 func (s *failingAssignmentStream) Context() context.Context { return s.ctx }
 
+func TestDispatchPendingRespectsWorkerMaxConcurrentRuns(t *testing.T) {
+	h := newHarness(t)
+	first := h.enqueueRun(t, "first")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-capacity", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == first.RunID
+	})
+	second := h.enqueueRun(t, "second")
+	if err := h.service.DispatchPending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	run, err := h.repo.GetRun(context.Background(), second.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "queued" {
+		t.Fatalf("second run status = %q, want queued while worker is at capacity", run.Status)
+	}
+
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:              first.RunID,
+		AssistantMessageId: first.AssistantMessageID,
+		Content:            "done",
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == second.RunID
+	})
+}
+
+func TestWorkerDisconnectRequeuesAssignedJob(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.enqueueRun(t, "disconnect")
+	client := h.runtimeClient(t)
+	stream, err := client.ConnectWorker(h.internalContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-disconnect", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == enqueued.RunID
+	})
+	if err := stream.CloseSend(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+		if err == nil && run.Status == "queued" {
+			var jobStatus string
+			if err := h.database.QueryRowContext(context.Background(), `SELECT status FROM jobs WHERE id = ?`, enqueued.JobID).Scan(&jobStatus); err != nil {
+				t.Fatal(err)
+			}
+			if jobStatus != "pending" {
+				t.Fatalf("job status = %q, want pending", jobStatus)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("assigned job was not requeued after worker disconnect")
+}
+
+func (h *harness) enqueueRun(t *testing.T, content string) repository.EnqueueUserMessageResult {
+	t.Helper()
+	session, err := h.repo.CreateSession(context.Background(), "Runtime")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	enqueued, err := h.repo.EnqueueUserMessage(context.Background(), repository.EnqueueUserMessageInput{
+		SessionID:     session.SessionID,
+		Content:       content,
+		AgentID:       "general_assistant",
+		ModelProvider: "ollama",
+		Model:         "llama3.2",
+	})
+	if err != nil {
+		t.Fatalf("EnqueueUserMessage: %v", err)
+	}
+	return enqueued
+}
+
 func TestRunCompletedPublishesTerminalEvent(t *testing.T) {
 	h := newHarness(t)
 	enqueued := h.createRunningRunResult(t, "complete me")

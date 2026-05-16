@@ -23,9 +23,16 @@ type Server struct {
 }
 
 type worker struct {
-	commands chan *turingv1.RuntimeCommand
-	mu       sync.Mutex
-	closed   bool
+	commands      chan *turingv1.RuntimeCommand
+	maxConcurrent int
+	assignments   map[string]string
+	mu            sync.Mutex
+	closed        bool
+}
+
+type assignment struct {
+	jobID string
+	runID string
 }
 
 func New(repo *repository.Repository, buses ...*events.Bus) *Server {
@@ -52,14 +59,18 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 		s.mu.Unlock()
 		return status.Error(codes.AlreadyExists, "worker already connected")
 	}
-	connectedWorker := &worker{commands: commands}
+	maxConcurrent := int(ready.MaxConcurrentRuns)
+	if maxConcurrent <= 0 {
+		maxConcurrent = 1
+	}
+	connectedWorker := &worker{commands: commands, maxConcurrent: maxConcurrent, assignments: map[string]string{}}
 	s.workers[ready.WorkerId] = connectedWorker
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		delete(s.workers, ready.WorkerId)
 		s.mu.Unlock()
-		connectedWorker.close()
+		s.requeueAssignments(connectedWorker.close())
 	}()
 	if err := stream.Send(&turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_WorkerAccepted{WorkerAccepted: &turingv1.RuntimeWorkerAccepted{WorkerId: ready.WorkerId}}}); err != nil {
 		return err
@@ -79,6 +90,13 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 				recvErr <- err
 				return
 			}
+			if runID := terminalRunID(update); runID != "" {
+				connectedWorker.releaseRun(runID)
+				if err := s.DispatchPending(ctx); err != nil {
+					recvErr <- err
+					return
+				}
+			}
 		}
 	}()
 	for {
@@ -89,35 +107,60 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 			return err
 		case cmd := <-commands:
 			if err := stream.Send(cmd); err != nil {
-				s.requeueIfAssignmentFailed(cmd)
+				s.requeueIfAssignmentFailed(cmd, connectedWorker)
 				return err
 			}
 		}
 	}
 }
 
-func (s *Server) requeueIfAssignmentFailed(cmd *turingv1.RuntimeCommand) {
+func terminalRunID(update *turingv1.RuntimeUpdate) string {
+	if update == nil {
+		return ""
+	}
+	if completed := update.GetRunCompleted(); completed != nil {
+		return completed.RunId
+	}
+	if failed := update.GetRunFailed(); failed != nil {
+		return failed.RunId
+	}
+	if cancelled := update.GetRunCancelledAck(); cancelled != nil {
+		return cancelled.RunId
+	}
+	return ""
+}
+
+func (s *Server) requeueIfAssignmentFailed(cmd *turingv1.RuntimeCommand, worker *worker) {
 	assigned := cmd.GetRunAssigned()
 	if assigned == nil {
 		return
 	}
+	worker.releaseRun(assigned.RunId)
+	s.requeueAssignments([]assignment{{jobID: assigned.JobId, runID: assigned.RunId}})
+}
+
+func (s *Server) requeueAssignments(assignments []assignment) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = s.repo.RequeueClaimedJob(ctx, assigned.JobId, assigned.RunId)
+	for _, assignment := range assignments {
+		_ = s.repo.RequeueClaimedJob(ctx, assignment.jobID, assignment.runID)
+	}
 }
 
 func (s *Server) DispatchPending(ctx context.Context) error {
 	workers := s.snapshotWorkers()
 	for _, entry := range workers {
-		assigned, noJob, err := s.dispatchToWorker(ctx, entry.workerID, entry.worker)
-		if err != nil {
-			return err
-		}
-		if noJob {
-			return nil
-		}
-		if !assigned {
-			continue
+		for {
+			assigned, noJob, err := s.dispatchToWorker(ctx, entry.workerID, entry.worker)
+			if err != nil {
+				return err
+			}
+			if noJob {
+				return nil
+			}
+			if !assigned {
+				break
+			}
 		}
 	}
 	return nil
@@ -141,7 +184,7 @@ func (s *Server) snapshotWorkers() []workerSnapshot {
 func (s *Server) dispatchToWorker(ctx context.Context, workerID string, worker *worker) (assigned bool, noJob bool, err error) {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
-	if worker.closed {
+	if worker.closed || len(worker.assignments) >= worker.maxConcurrent {
 		return false, false, nil
 	}
 	job, err := s.repo.ClaimNextJob(ctx, "general_assistant", workerID)
@@ -153,6 +196,7 @@ func (s *Server) dispatchToWorker(ctx context.Context, workerID string, worker *
 	}
 	select {
 	case worker.commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunAssigned{RunAssigned: mapJob(job)}}:
+		worker.assignments[job.RunID] = job.JobID
 		return true, false, nil
 	case <-ctx.Done():
 		return false, false, ctx.Err()
@@ -178,14 +222,26 @@ func (w *worker) trySend(command *turingv1.RuntimeCommand) {
 	}
 }
 
-func (w *worker) close() {
+func (w *worker) releaseRun(runID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.assignments, runID)
+}
+
+func (w *worker) close() []assignment {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
-		return
+		return nil
 	}
 	w.closed = true
 	close(w.commands)
+	assignments := make([]assignment, 0, len(w.assignments))
+	for runID, jobID := range w.assignments {
+		assignments = append(assignments, assignment{jobID: jobID, runID: runID})
+	}
+	w.assignments = map[string]string{}
+	return assignments
 }
 
 func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate) error {
@@ -229,7 +285,7 @@ func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.Run
 		return err
 	}
 	s.publishEvent(event)
-	return s.DispatchPending(ctx)
+	return nil
 }
 
 func (s *Server) handleRunFailed(ctx context.Context, failed *turingv1.RuntimeRunFailed) error {
@@ -245,7 +301,7 @@ func (s *Server) handleRunFailed(ctx context.Context, failed *turingv1.RuntimeRu
 		return err
 	}
 	s.publishEvent(event)
-	return s.DispatchPending(ctx)
+	return nil
 }
 
 func encodePayload(payload map[string]any) (string, error) {
