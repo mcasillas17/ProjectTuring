@@ -192,7 +192,7 @@ func (r *Repository) RequeueClaimedJob(ctx context.Context, jobID string, runID 
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL, picked_up_at = NULL WHERE id = ? AND run_id = ? AND status = 'in_progress'`, jobID, runID)
+	result, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL, picked_up_at = NULL, attempt = attempt + 1 WHERE id = ? AND run_id = ? AND status = 'in_progress'`, jobID, runID)
 	if err != nil {
 		return err
 	}

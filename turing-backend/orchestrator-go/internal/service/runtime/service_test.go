@@ -688,6 +688,41 @@ func TestRuntimeRejectsEventsAfterCancelledRun(t *testing.T) {
 	}
 }
 
+func TestRuntimeRejectsGenericMessageCompletedEvent(t *testing.T) {
+	tests := []struct {
+		name            string
+		payload         map[string]any
+		useRunMessageID bool
+	}{
+		{name: "valid payload", payload: map[string]any{"content": "done"}, useRunMessageID: true},
+		{name: "wrong message id", payload: map[string]any{"messageId": "msg_wrong", "content": "done"}},
+		{name: "empty message id", payload: map[string]any{"messageId": "", "content": "done"}},
+		{name: "empty content", payload: map[string]any{"content": ""}, useRunMessageID: true},
+		{name: "missing content", payload: map[string]any{}, useRunMessageID: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			enqueued := h.createRunningRunResult(t, "bad message completed")
+			if tt.useRunMessageID {
+				tt.payload["messageId"] = enqueued.AssistantMessageID
+			}
+			payload, err := structpb.NewStruct(tt.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_Event{Event: &turingv1.TuringEvent{
+				RunId:   enqueued.RunID,
+				Type:    turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_COMPLETED,
+				Payload: payload,
+			}}})
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("message.completed error = %v, want InvalidArgument", err)
+			}
+		})
+	}
+}
+
 func TestRunCompletedUsesPersistedAssistantMessageID(t *testing.T) {
 	h := newHarness(t)
 	enqueued := h.createRunningRunResult(t, "complete without message id")
@@ -761,6 +796,40 @@ func TestRunCompletedRejectsEmptyContent(t *testing.T) {
 	}
 	if run.Status != "running" {
 		t.Fatalf("run status = %q, want running", run.Status)
+	}
+}
+
+func TestRunCompletedMapsStateConflictToFailedPrecondition(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "already cancelled")
+	if _, err := h.repo.CancelRunWithEvent(context.Background(), enqueued.RunID, "user_cancelled", `{"reason":"user_cancelled"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:              enqueued.RunID,
+		AssistantMessageId: enqueued.AssistantMessageID,
+		Content:            "too late",
+	}}})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("RunCompleted error = %v, want FailedPrecondition", err)
+	}
+}
+
+func TestRunFailedMapsStateConflictToFailedPrecondition(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "already cancelled")
+	if _, err := h.repo.CancelRunWithEvent(context.Background(), enqueued.RunID, "user_cancelled", `{"reason":"user_cancelled"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunFailed{RunFailed: &turingv1.RuntimeRunFailed{
+		RunId:   enqueued.RunID,
+		Code:    "model_error",
+		Message: "too late",
+	}}})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("RunFailed error = %v, want FailedPrecondition", err)
 	}
 }
 
@@ -985,6 +1054,7 @@ func TestRunCompletedPublishesTerminalEvent(t *testing.T) {
 		RunId:              enqueued.RunID,
 		AssistantMessageId: enqueued.AssistantMessageID,
 		Content:            "done",
+		Usage:              mustStruct(t, map[string]any{"prompt_tokens": float64(3), "completion_tokens": float64(4)}),
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -996,11 +1066,12 @@ func TestRunCompletedPublishesTerminalEvent(t *testing.T) {
 	if event.TraceID != enqueued.TraceID {
 		t.Fatalf("terminal event trace_id = %q, want %q", event.TraceID, enqueued.TraceID)
 	}
-	var payload map[string]string
+	var payload map[string]any
 	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if payload["assistantMessageId"] != enqueued.AssistantMessageID {
+	usage, ok := payload["usage"].(map[string]any)
+	if payload["runId"] != enqueued.RunID || payload["assistantMessageId"] != enqueued.AssistantMessageID || !ok || usage["prompt_tokens"] != float64(3) || usage["completion_tokens"] != float64(4) {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
@@ -1025,6 +1096,7 @@ func TestRunFailedPublishesTerminalEvent(t *testing.T) {
 		return event.Type == "agent.run.failed" && event.RunID == enqueued.RunID
 	})
 	var payload struct {
+		RunID     string `json:"runId"`
 		Code      string `json:"code"`
 		Message   string `json:"message"`
 		Retryable bool   `json:"retryable"`
@@ -1032,9 +1104,18 @@ func TestRunFailedPublishesTerminalEvent(t *testing.T) {
 	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if payload.Code != "model_error" || payload.Message != "model failed" || !payload.Retryable {
+	if payload.RunID != enqueued.RunID || payload.Code != "model_error" || payload.Message != "model failed" || !payload.Retryable {
 		t.Fatalf("payload = %+v", payload)
 	}
+}
+
+func mustStruct(t *testing.T, values map[string]any) *structpb.Struct {
+	t.Helper()
+	out, err := structpb.NewStruct(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func recvBusEvent(t *testing.T, ch <-chan events.Event, match func(events.Event) bool) events.Event {

@@ -182,12 +182,16 @@ func approvalByID(ctx context.Context, q approvalQuerier, approvalID string) (Ap
 }
 
 func expectOneRow(result sql.Result, message string) error {
+	return expectOneRowErr(result, errors.New(message))
+}
+
+func expectOneRowErr(result sql.Result, noRowsErr error) error {
 	changed, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
 	if changed != 1 {
-		return errors.New(message)
+		return noRowsErr
 	}
 	return nil
 }

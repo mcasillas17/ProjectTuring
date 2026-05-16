@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -138,6 +139,23 @@ func TestSendMessageRejectsUnsupportedAgent(t *testing.T) {
 		SessionId:     sessionID,
 		Content:       "hello",
 		AgentId:       turingv1.AgentId(999),
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+	})
+	if err == nil {
+		_, err = stream.Recv()
+	}
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("SendMessage error = %v, want InvalidArgument", err)
+	}
+}
+
+func TestSendMessageRejectsUnsupportedContentType(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	stream, err := h.chatClient.SendMessage(h.clientContext(), &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "hello",
+		ContentType:   "application/json",
 		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
 	})
 	if err == nil {
@@ -365,6 +383,13 @@ func TestSendMessageCancellationCancelsRun(t *testing.T) {
 	}
 	for _, event := range replayed {
 		if event.Type == "agent.run.cancelled" && event.RunID.Valid && event.RunID.String == runID {
+			var payload map[string]string
+			if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["runId"] != runID || payload["reason"] != "client_cancelled" {
+				t.Fatalf("cancel payload = %+v", payload)
+			}
 			return
 		}
 	}
@@ -562,7 +587,7 @@ func TestSendMessageStreamsRuntimeRunCompleted(t *testing.T) {
 	}
 }
 
-func TestSendMessageWaitsForRunCompletedAfterMessageCompleted(t *testing.T) {
+func TestSendMessageWaitsForRunCompletedAfterTokenDelta(t *testing.T) {
 	h := newHarness(t)
 	sessionID := h.createSession(t)
 	ctx, cancel := context.WithTimeout(h.clientContext(), 2*time.Second)
@@ -597,7 +622,7 @@ func TestSendMessageWaitsForRunCompletedAfterMessageCompleted(t *testing.T) {
 		return assigned != nil && assigned.RunId == runID
 	}).GetRunAssigned()
 	recvChatRunStarted(t, chatStream, runID)
-	messagePayload, err := structpb.NewStruct(map[string]any{"messageId": assigned.AssistantMessageId, "content": "done"})
+	messagePayload, err := structpb.NewStruct(map[string]any{"messageId": assigned.AssistantMessageId, "delta": "partial"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,8 +630,22 @@ func TestSendMessageWaitsForRunCompletedAfterMessageCompleted(t *testing.T) {
 		SessionId: sessionID,
 		RunId:     runID,
 		TraceId:   traceID,
-		Type:      turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_COMPLETED,
+		Type:      turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_DELTA,
 		Payload:   messagePayload,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	tokenDelta, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenDelta.GetTokenDelta().GetDelta() != "partial" {
+		t.Fatalf("token_delta = %+v", tokenDelta)
+	}
+	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:              runID,
+		AssistantMessageId: assigned.AssistantMessageId,
+		Content:            "done",
 	}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -616,13 +655,6 @@ func TestSendMessageWaitsForRunCompletedAfterMessageCompleted(t *testing.T) {
 	}
 	if messageCompleted.GetMessageCompleted().GetContent() != "done" {
 		t.Fatalf("message_completed = %+v", messageCompleted)
-	}
-	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
-		RunId:              runID,
-		AssistantMessageId: assigned.AssistantMessageId,
-		Content:            "done",
-	}}}); err != nil {
-		t.Fatal(err)
 	}
 	runCompleted, err := chatStream.Recv()
 	if err != nil {

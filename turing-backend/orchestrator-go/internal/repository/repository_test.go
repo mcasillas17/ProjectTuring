@@ -363,6 +363,46 @@ func TestClaimNextJobRollsBackWhenStartedEventAppendFails(t *testing.T) {
 	}
 }
 
+func TestRequeueClaimedJobIncrementsAttempt(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Retry attempts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "retry me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := repo.ClaimNextJob(ctx, "general_assistant", "worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Attempt != 1 {
+		t.Fatalf("first attempt = %d, want 1", first.Attempt)
+	}
+	if err := repo.RequeueClaimedJob(ctx, enqueued.JobID, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.ClaimNextJob(ctx, "general_assistant", "worker-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Attempt != 2 {
+		t.Fatalf("second attempt = %d, want 2", second.Attempt)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(second.StartedEvent.PayloadJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["attempt"] != float64(2) {
+		t.Fatalf("started retry payload = %+v", payload)
+	}
+}
+
 func TestCompleteRunUpdatesRunJobAndAssistantMessage(t *testing.T) {
 	database := openTestDB(t)
 	repo := New(database)
@@ -502,6 +542,54 @@ func TestCompleteRunWithEventAppendsMessageCompletedBeforeRunCompleted(t *testin
 	}
 	if payload["messageId"] != enqueued.AssistantMessageID || payload["content"] != "done" {
 		t.Fatalf("message.completed payload = %+v", payload)
+	}
+}
+
+func TestCompleteRunWithEventAppendsAuthoritativeMessageCompleted(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Complete run authoritative event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "complete me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkRunRunning(ctx, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	earlyPayload, err := structpb.NewStruct(map[string]any{
+		"messageId": enqueued.AssistantMessageID,
+		"content":   "early",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.AppendRuntimeEvent(ctx, &turingv1.TuringEvent{
+		RunId:   enqueued.RunID,
+		Type:    turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_COMPLETED,
+		Payload: earlyPayload,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	completedEvents, err := repo.CompleteRunWithEvent(ctx, enqueued.RunID, enqueued.AssistantMessageID, "authoritative", `{"assistantMessageId":"`+enqueued.AssistantMessageID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(completedEvents) != 2 || completedEvents[0].Type != "message.completed" || completedEvents[1].Type != "agent.run.completed" {
+		t.Fatalf("completed events = %+v", completedEvents)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(completedEvents[0].PayloadJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["messageId"] != enqueued.AssistantMessageID || payload["content"] != "authoritative" {
+		t.Fatalf("authoritative message.completed payload = %+v", payload)
 	}
 }
 

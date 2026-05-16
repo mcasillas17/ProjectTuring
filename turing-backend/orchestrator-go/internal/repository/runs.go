@@ -12,6 +12,17 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
+var (
+	// ErrRunNotCompletable indicates a run is no longer in a status that can complete.
+	ErrRunNotCompletable = errors.New("run is not completable")
+	// ErrRunNotFailable indicates a run is no longer in a status that can fail.
+	ErrRunNotFailable = errors.New("run is not failable")
+	// ErrRunNotCancellable indicates a run is no longer in a status that can be cancelled.
+	ErrRunNotCancellable = errors.New("run is not cancellable")
+	// ErrRunNotActive indicates a runtime event arrived for a non-active run.
+	ErrRunNotActive = errors.New("run is not active")
+)
+
 type Run struct {
 	RunID              string
 	SessionID          string
@@ -55,7 +66,7 @@ func (r *Repository) CompleteRun(ctx context.Context, runID string, assistantMes
 	if err != nil {
 		return err
 	}
-	if err := expectOneRow(result, "run is not completable"); err != nil {
+	if err := expectOneRowErr(result, ErrRunNotCompletable); err != nil {
 		return err
 	}
 	if assistantMessageID != "" {
@@ -88,7 +99,7 @@ func (r *Repository) CompleteRunWithEvent(ctx context.Context, runID string, ass
 	if err != nil {
 		return nil, err
 	}
-	if err := expectOneRow(result, "run is not completable"); err != nil {
+	if err := expectOneRowErr(result, ErrRunNotCompletable); err != nil {
 		return nil, err
 	}
 	if assistantMessageID != "" {
@@ -105,24 +116,18 @@ func (r *Repository) CompleteRunWithEvent(ctx context.Context, runID string, ass
 	}
 	events := make([]Event, 0, 2)
 	if assistantMessageID != "" && content != "" {
-		var messageCompletedCount int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM events WHERE run_id = ? AND type = 'message.completed'`, runID).Scan(&messageCompletedCount); err != nil {
+		messagePayload, err := json.Marshal(map[string]any{
+			"messageId": assistantMessageID,
+			"content":   content,
+		})
+		if err != nil {
 			return nil, err
 		}
-		if messageCompletedCount == 0 {
-			messagePayload, err := json.Marshal(map[string]any{
-				"messageId": assistantMessageID,
-				"content":   content,
-			})
-			if err != nil {
-				return nil, err
-			}
-			messageEvent, err := appendRunEventTx(ctx, tx, sessionID, runID, traceID, "message.completed", string(messagePayload), finishedAt)
-			if err != nil {
-				return nil, err
-			}
-			events = append(events, messageEvent)
+		messageEvent, err := appendRunEventTx(ctx, tx, sessionID, runID, traceID, "message.completed", string(messagePayload), finishedAt)
+		if err != nil {
+			return nil, err
 		}
+		events = append(events, messageEvent)
 	}
 	event, err := appendRunEventTx(ctx, tx, sessionID, runID, traceID, "agent.run.completed", payloadJSON, finishedAt)
 	if err != nil {
@@ -146,7 +151,7 @@ func (r *Repository) FailRun(ctx context.Context, runID string, code string, mes
 	if err != nil {
 		return err
 	}
-	if err := expectOneRow(result, "run is not failable"); err != nil {
+	if err := expectOneRowErr(result, ErrRunNotFailable); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'failed', finished_at = ?, error_code = ?, error_message = ? WHERE run_id = ? AND status IN ('pending','in_progress')`, finishedAt, code, message, runID); err != nil {
@@ -170,7 +175,7 @@ func (r *Repository) FailRunWithEvent(ctx context.Context, runID string, code st
 	if err != nil {
 		return Event{}, err
 	}
-	if err := expectOneRow(result, "run is not failable"); err != nil {
+	if err := expectOneRowErr(result, ErrRunNotFailable); err != nil {
 		return Event{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'failed', finished_at = ?, error_code = ?, error_message = ? WHERE run_id = ? AND status IN ('pending','in_progress')`, finishedAt, code, message, runID); err != nil {
@@ -197,7 +202,7 @@ func (r *Repository) CancelRun(ctx context.Context, runID string, reason string)
 	if err != nil {
 		return err
 	}
-	if err := expectOneRow(result, "run is not cancellable"); err != nil {
+	if err := expectOneRowErr(result, ErrRunNotCancellable); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'cancelled', finished_at = ?, error_code = 'cancelled', error_message = ? WHERE run_id = ? AND status IN ('pending','in_progress')`, finishedAt, reason, runID); err != nil {
@@ -221,7 +226,7 @@ func (r *Repository) CancelRunWithEvent(ctx context.Context, runID string, reaso
 	if err != nil {
 		return Event{}, err
 	}
-	if err := expectOneRow(result, "run is not cancellable"); err != nil {
+	if err := expectOneRowErr(result, ErrRunNotCancellable); err != nil {
 		return Event{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'cancelled', finished_at = ?, error_code = 'cancelled', error_message = ? WHERE run_id = ? AND status IN ('pending','in_progress')`, finishedAt, reason, runID); err != nil {
@@ -291,7 +296,7 @@ func (r *Repository) AppendRuntimeEvent(ctx context.Context, event *turingv1.Tur
 	if err != nil {
 		return Event{}, err
 	}
-	if err := expectOneRow(result, "run is not active"); err != nil {
+	if err := expectOneRowErr(result, ErrRunNotActive); err != nil {
 		return Event{}, err
 	}
 	var sessionID, traceID string

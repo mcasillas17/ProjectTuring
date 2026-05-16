@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
@@ -347,7 +348,7 @@ func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate
 		}
 		event, err := s.repo.AppendRuntimeEvent(ctx, eventUpdate)
 		if err != nil {
-			return err
+			return mapRunStateError(err)
 		}
 		s.publishEvent(event)
 		return nil
@@ -378,6 +379,9 @@ func (s *Server) normalizeRuntimeEvent(ctx context.Context, event *turingv1.Turi
 	}
 	if !isActiveRunStatus(run.Status) {
 		return nil, status.Error(codes.FailedPrecondition, "run is not active")
+	}
+	if event.Type == turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_COMPLETED {
+		return nil, status.Error(codes.InvalidArgument, "message.completed must use run_completed")
 	}
 	out := *event
 	out.SessionId = run.SessionID
@@ -466,13 +470,20 @@ func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.Run
 	if run.AssistantMessageID != "" && assistantMessageID != run.AssistantMessageID {
 		return status.Error(codes.InvalidArgument, "assistant_message_id does not match run")
 	}
-	payloadJSON, err := encodePayload(map[string]any{"assistantMessageId": assistantMessageID})
+	payload := map[string]any{
+		"runId":              completed.RunId,
+		"assistantMessageId": assistantMessageID,
+	}
+	if completed.Usage != nil {
+		payload["usage"] = completed.Usage.AsMap()
+	}
+	payloadJSON, err := encodePayload(payload)
 	if err != nil {
 		return err
 	}
 	events, err := s.repo.CompleteRunWithEvent(ctx, completed.RunId, assistantMessageID, completed.Content, payloadJSON)
 	if err != nil {
-		return err
+		return mapRunStateError(err)
 	}
 	for _, event := range events {
 		s.publishEvent(event)
@@ -484,13 +495,13 @@ func (s *Server) handleRunFailed(ctx context.Context, failed *turingv1.RuntimeRu
 	if failed == nil || failed.RunId == "" {
 		return status.Error(codes.InvalidArgument, "run_failed is required")
 	}
-	payloadJSON, err := encodePayload(map[string]any{"code": failed.Code, "message": failed.Message, "retryable": failed.Retryable})
+	payloadJSON, err := encodePayload(map[string]any{"runId": failed.RunId, "code": failed.Code, "message": failed.Message, "retryable": failed.Retryable})
 	if err != nil {
 		return err
 	}
 	event, err := s.repo.FailRunWithEvent(ctx, failed.RunId, failed.Code, failed.Message, payloadJSON)
 	if err != nil {
-		return err
+		return mapRunStateError(err)
 	}
 	s.publishEvent(event)
 	return nil
@@ -502,6 +513,18 @@ func encodePayload(payload map[string]any) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+func mapRunStateError(err error) error {
+	switch {
+	case errors.Is(err, repository.ErrRunNotCompletable),
+		errors.Is(err, repository.ErrRunNotFailable),
+		errors.Is(err, repository.ErrRunNotCancellable),
+		errors.Is(err, repository.ErrRunNotActive):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	default:
+		return err
+	}
 }
 
 func (s *Server) handleToolBeacon(ctx context.Context, beacon *turingv1.ToolCallBeacon) (*turingv1.ToolPolicyDecision, error) {

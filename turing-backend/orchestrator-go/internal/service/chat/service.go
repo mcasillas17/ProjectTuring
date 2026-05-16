@@ -43,6 +43,9 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 	if req.Content == "" {
 		return status.Error(codes.InvalidArgument, "content is required")
 	}
+	if err := requestContentType(req.ContentType); err != nil {
+		return err
+	}
 	agentID, err := requestAgentID(req.AgentId)
 	if err != nil {
 		return err
@@ -184,6 +187,13 @@ func requestModelProvider(provider turingv1.ModelProvider) (string, error) {
 	}
 }
 
+func requestContentType(contentType string) error {
+	if contentType == "" || contentType == "text" {
+		return nil
+	}
+	return status.Error(codes.InvalidArgument, "content_type is unsupported")
+}
+
 func isTerminalEvent(eventType string) bool {
 	switch eventType {
 	case "agent.run.completed", "agent.run.failed", "agent.run.cancelled":
@@ -213,7 +223,11 @@ func mapEnqueueError(ctx context.Context, err error) error {
 func (s *Server) cancelRun(runID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	event, err := s.repo.CancelRunWithEvent(ctx, runID, "client_cancelled", `{"reason":"client_cancelled"}`)
+	payload, err := json.Marshal(map[string]string{"runId": runID, "reason": "client_cancelled"})
+	if err != nil {
+		return
+	}
+	event, err := s.repo.CancelRunWithEvent(ctx, runID, "client_cancelled", string(payload))
 	if err != nil {
 		return
 	}
