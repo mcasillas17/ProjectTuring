@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 
 	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/events"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -13,12 +15,17 @@ import (
 type Server struct {
 	turingv1.UnimplementedRuntimeServiceServer
 	repo    *repository.Repository
+	bus     *events.Bus
 	mu      sync.Mutex
 	workers map[string]chan *turingv1.RuntimeCommand
 }
 
-func New(repo *repository.Repository) *Server {
-	return &Server{repo: repo, workers: map[string]chan *turingv1.RuntimeCommand{}}
+func New(repo *repository.Repository, buses ...*events.Bus) *Server {
+	var bus *events.Bus
+	if len(buses) > 0 {
+		bus = buses[0]
+	}
+	return &Server{repo: repo, bus: bus, workers: map[string]chan *turingv1.RuntimeCommand{}}
 }
 
 func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServer) error {
@@ -99,7 +106,12 @@ func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate
 	case *turingv1.RuntimeUpdate_Heartbeat:
 		return nil
 	case *turingv1.RuntimeUpdate_Event:
-		return s.repo.AppendRuntimeEvent(ctx, value.Event)
+		event, err := s.repo.AppendRuntimeEvent(ctx, value.Event)
+		if err != nil {
+			return err
+		}
+		s.publishEvent(event)
+		return nil
 	case *turingv1.RuntimeUpdate_ToolBeacon:
 		_, err := s.handleToolBeacon(ctx, value.ToolBeacon)
 		return err
@@ -119,6 +131,29 @@ func (s *Server) handleToolBeacon(ctx context.Context, beacon *turingv1.ToolCall
 		return nil, status.Error(codes.InvalidArgument, "tool_beacon is required")
 	}
 	return &turingv1.ToolPolicyDecision{Decision: turingv1.ToolPolicyDecision_DECISION_ALLOW, ToolCallId: beacon.ToolCallId}, nil
+}
+
+func (s *Server) publishEvent(event repository.Event) {
+	if s.bus == nil {
+		return
+	}
+	s.bus.Publish(events.Event{
+		EventID:     event.EventID,
+		SessionID:   event.SessionID,
+		RunID:       nullString(event.RunID),
+		TraceID:     event.TraceID,
+		Sequence:    event.Sequence,
+		Type:        event.Type,
+		CreatedAt:   event.CreatedAt,
+		PayloadJSON: event.PayloadJSON,
+	})
+}
+
+func nullString(value sql.NullString) string {
+	if value.Valid {
+		return value.String
+	}
+	return ""
 }
 
 func mapJob(job repository.Job) *turingv1.AgentJob {

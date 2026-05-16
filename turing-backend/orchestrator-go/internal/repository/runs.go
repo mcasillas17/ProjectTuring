@@ -114,26 +114,25 @@ func (r *Repository) GetRun(ctx context.Context, runID string) (Run, error) {
 	return run, err
 }
 
-func (r *Repository) AppendRuntimeEvent(ctx context.Context, event *turingv1.TuringEvent) error {
+func (r *Repository) AppendRuntimeEvent(ctx context.Context, event *turingv1.TuringEvent) (Event, error) {
 	if event == nil {
-		return errors.New("runtime event is required")
+		return Event{}, errors.New("runtime event is required")
 	}
 	payloadJSON := "{}"
 	if event.Payload != nil {
 		payload, err := protojson.Marshal(event.Payload)
 		if err != nil {
-			return err
+			return Event{}, err
 		}
 		payloadJSON = string(payload)
 	}
-	_, err := r.AppendEvent(ctx, AppendEventInput{
+	return r.AppendEvent(ctx, AppendEventInput{
 		SessionID:   event.SessionId,
 		RunID:       event.RunId,
 		TraceID:     event.TraceId,
 		Type:        runtimeEventType(event.Type),
 		PayloadJSON: payloadJSON,
 	})
-	return err
 }
 
 func runtimeEventType(value turingv1.TuringEventType) string {

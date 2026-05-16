@@ -1,0 +1,311 @@
+package chat
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"time"
+
+	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/safejson"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/events"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/runtime"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+type Server struct {
+	turingv1.UnimplementedChatServiceServer
+	repo        *repository.Repository
+	bus         *events.Bus
+	runtime     *runtime.Server
+	ollamaModel string
+	openAIModel string
+}
+
+func New(repo *repository.Repository, bus *events.Bus, runtimeServer *runtime.Server, ollamaModel string, openAIModel string) *Server {
+	return &Server{repo: repo, bus: bus, runtime: runtimeServer, ollamaModel: ollamaModel, openAIModel: openAIModel}
+}
+
+func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.ChatService_SendMessageServer) error {
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+	if req == nil {
+		return status.Error(codes.InvalidArgument, "request is required")
+	}
+	if req.SessionId == "" {
+		return status.Error(codes.InvalidArgument, "session_id is required")
+	}
+	if req.Content == "" {
+		return status.Error(codes.InvalidArgument, "content is required")
+	}
+	modelProvider := "ollama"
+	if req.ModelProvider == turingv1.ModelProvider_MODEL_PROVIDER_OPENAI_COMPATIBLE {
+		modelProvider = "openai_compatible"
+	}
+	model := req.Model
+	if model == "" && modelProvider == "ollama" {
+		model = s.ollamaModel
+	}
+	if model == "" && modelProvider == "openai_compatible" {
+		model = s.openAIModel
+	}
+	ch, unsubscribe := s.bus.Subscribe(req.SessionId)
+	defer unsubscribe()
+	enqueued, err := s.repo.EnqueueUserMessage(ctx, repository.EnqueueUserMessageInput{
+		SessionID:     req.SessionId,
+		Content:       req.Content,
+		AgentID:       "general_assistant",
+		ModelProvider: modelProvider,
+		Model:         model,
+	})
+	if err != nil {
+		return status.Error(codes.NotFound, "session not found")
+	}
+	queuedEvent, err := s.repo.AppendEvent(ctx, repository.AppendEventInput{
+		SessionID:   req.SessionId,
+		RunID:       enqueued.RunID,
+		TraceID:     enqueued.TraceID,
+		Type:        "agent.run.queued",
+		PayloadJSON: `{"status":"queued"}`,
+	})
+	if err != nil {
+		return status.Error(codes.Internal, "append queued event failed")
+	}
+	s.bus.Publish(events.Event{
+		EventID:     queuedEvent.EventID,
+		SessionID:   queuedEvent.SessionID,
+		RunID:       enqueued.RunID,
+		TraceID:     queuedEvent.TraceID,
+		Sequence:    queuedEvent.Sequence,
+		Type:        queuedEvent.Type,
+		CreatedAt:   queuedEvent.CreatedAt,
+		PayloadJSON: queuedEvent.PayloadJSON,
+	})
+	if err := stream.Send(&turingv1.ChatStreamEvent{
+		SessionId: req.SessionId,
+		RunId:     enqueued.RunID,
+		TraceId:   enqueued.TraceID,
+		Sequence:  queuedEvent.Sequence,
+		Event: &turingv1.ChatStreamEvent_RunQueued{RunQueued: &turingv1.RunQueued{
+			RunId:   enqueued.RunID,
+			JobId:   enqueued.JobID,
+			TraceId: enqueued.TraceID,
+		}},
+	}); err != nil {
+		s.cancelRunIfClientCancelled(ctx, enqueued.RunID)
+		return err
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			s.cancelRun(enqueued.RunID)
+			return status.Error(codes.Canceled, "client cancelled stream")
+		case event, ok := <-ch:
+			if !ok {
+				return nil
+			}
+			if event.RunID != enqueued.RunID {
+				continue
+			}
+			if event.Sequence <= queuedEvent.Sequence {
+				continue
+			}
+			if err := stream.Send(mapChatEvent(event)); err != nil {
+				s.cancelRunIfClientCancelled(ctx, enqueued.RunID)
+				return err
+			}
+			switch event.Type {
+			case "message.completed", "agent.run.completed", "agent.run.failed", "agent.run.cancelled":
+				return nil
+			}
+		}
+	}
+}
+
+func (s *Server) cancelRun(runID string) {
+	_ = s.repo.CancelRun(context.Background(), runID, "client_cancelled")
+	if s.runtime != nil {
+		s.runtime.CancelRun(context.Background(), runID, "client_cancelled")
+	}
+}
+
+func (s *Server) cancelRunIfClientCancelled(ctx context.Context, runID string) {
+	if ctx.Err() == nil {
+		return
+	}
+	s.cancelRun(runID)
+}
+
+func mapChatEvent(event events.Event) *turingv1.ChatStreamEvent {
+	payload, err := decodePayload(event.PayloadJSON)
+	if err != nil {
+		out := baseChatEvent(event)
+		out.Event = &turingv1.ChatStreamEvent_RunFailed{RunFailed: &turingv1.RunFailed{
+			RunId:   event.RunID,
+			Code:    "invalid_event_payload",
+			Message: err.Error(),
+		}}
+		return out
+	}
+	switch event.Type {
+	case "message.delta":
+		out := baseChatEvent(event)
+		out.Event = &turingv1.ChatStreamEvent_TokenDelta{TokenDelta: &turingv1.TokenDelta{
+			MessageId: payloadString(payload, "messageId", "message_id"),
+			Delta:     payloadString(payload, "delta"),
+		}}
+		return out
+	case "message.completed":
+		out := baseChatEvent(event)
+		out.Event = &turingv1.ChatStreamEvent_MessageCompleted{MessageCompleted: &turingv1.MessageCompleted{
+			MessageId: payloadString(payload, "messageId", "message_id"),
+			Content:   payloadString(payload, "content"),
+		}}
+		return out
+	case "agent.run.completed":
+		out := baseChatEvent(event)
+		out.Event = &turingv1.ChatStreamEvent_RunCompleted{RunCompleted: &turingv1.RunCompleted{
+			RunId:              event.RunID,
+			AssistantMessageId: payloadString(payload, "assistantMessageId", "assistant_message_id"),
+		}}
+		return out
+	case "agent.run.failed":
+		out := baseChatEvent(event)
+		out.Event = &turingv1.ChatStreamEvent_RunFailed{RunFailed: &turingv1.RunFailed{
+			RunId:     event.RunID,
+			Code:      payloadString(payload, "code"),
+			Message:   payloadString(payload, "message"),
+			Retryable: payloadBool(payload, "retryable"),
+		}}
+		return out
+	case "agent.run.cancelled":
+		out := baseChatEvent(event)
+		out.Event = &turingv1.ChatStreamEvent_RunCancelled{RunCancelled: &turingv1.RunCancelled{
+			RunId:  event.RunID,
+			Reason: payloadString(payload, "reason"),
+		}}
+		return out
+	default:
+		persisted, err := persistedEvent(event, payload)
+		if err != nil {
+			out := baseChatEvent(event)
+			out.Event = &turingv1.ChatStreamEvent_RunFailed{RunFailed: &turingv1.RunFailed{
+				RunId:   event.RunID,
+				Code:    "invalid_event_payload",
+				Message: err.Error(),
+			}}
+			return out
+		}
+		out := baseChatEvent(event)
+		out.Event = &turingv1.ChatStreamEvent_PersistedEvent{PersistedEvent: persisted}
+		return out
+	}
+}
+
+func baseChatEvent(event events.Event) *turingv1.ChatStreamEvent {
+	return &turingv1.ChatStreamEvent{
+		SessionId: event.SessionID,
+		RunId:     event.RunID,
+		TraceId:   event.TraceID,
+		Sequence:  event.Sequence,
+	}
+}
+
+func decodePayload(payloadJSON string) (map[string]any, error) {
+	if payloadJSON == "" {
+		payloadJSON = "{}"
+	}
+	return safejson.DecodeObject(json.NewDecoder(strings.NewReader(payloadJSON)))
+}
+
+func payloadString(payload map[string]any, names ...string) string {
+	for _, name := range names {
+		if value, ok := payload[name].(string); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func payloadBool(payload map[string]any, name string) bool {
+	value, ok := payload[name].(bool)
+	return ok && value
+}
+
+func persistedEvent(event events.Event, payload map[string]any) (*turingv1.TuringEvent, error) {
+	protoPayload, err := safejson.ToStruct(payload)
+	if err != nil {
+		return nil, err
+	}
+	return &turingv1.TuringEvent{
+		EventId:   event.EventID,
+		SessionId: event.SessionID,
+		RunId:     event.RunID,
+		TraceId:   event.TraceID,
+		Sequence:  event.Sequence,
+		Type:      mapEventType(event.Type),
+		CreatedAt: parseTimestamp(event.CreatedAt),
+		Payload:   protoPayload,
+	}, nil
+}
+
+func mapEventType(value string) turingv1.TuringEventType {
+	normalized := strings.ToLower(value)
+	normalized = strings.TrimPrefix(normalized, "turing_event_type_")
+	normalized = strings.ReplaceAll(normalized, "_", ".")
+	switch normalized {
+	case "message.started":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_STARTED
+	case "message.delta":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_DELTA
+	case "message.completed":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_COMPLETED
+	case "agent.run.queued":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_QUEUED
+	case "agent.run.started":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_STARTED
+	case "agent.run.step":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_STEP
+	case "agent.run.completed":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_COMPLETED
+	case "agent.run.failed":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_FAILED
+	case "agent.run.cancelled":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_CANCELLED
+	case "tool.call.started":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_TOOL_CALL_STARTED
+	case "tool.call.completed":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_TOOL_CALL_COMPLETED
+	case "tool.call.failed":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_TOOL_CALL_FAILED
+	case "tool.call.denied":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_TOOL_CALL_DENIED
+	case "approval.requested":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_APPROVAL_REQUESTED
+	case "approval.approved":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_APPROVAL_APPROVED
+	case "approval.denied":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_APPROVAL_DENIED
+	case "approval.expired":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_APPROVAL_EXPIRED
+	case "approval.consumed":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_APPROVAL_CONSUMED
+	case "error":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_ERROR
+	case "system":
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_SYSTEM
+	default:
+		return turingv1.TuringEventType_TURING_EVENT_TYPE_UNSPECIFIED
+	}
+}
+
+func parseTimestamp(value string) *timestamppb.Timestamp {
+	t, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return nil
+	}
+	return timestamppb.New(t)
+}
