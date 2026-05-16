@@ -14,8 +14,10 @@ import (
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/db"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -203,6 +205,36 @@ func TestCancelRunDoesNotQueueForFutureWorker(t *testing.T) {
 			t.Fatalf("received queued cancellation for future worker: %+v", cancel)
 		}
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestDuplicateWorkerIDIsRejected(t *testing.T) {
+	h := newHarness(t)
+	client := h.runtimeClient(t)
+	first, err := client.ConnectWorker(h.internalContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.CloseSend() }()
+	ready := &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-1", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}
+	if err := first.Send(ready); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, first, func(cmd *turingv1.RuntimeCommand) bool {
+		return cmd.GetWorkerAccepted() != nil
+	})
+
+	second, err := client.ConnectWorker(h.internalContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = second.CloseSend() }()
+	if err := second.Send(ready); err != nil {
+		t.Fatal(err)
+	}
+	_, err = second.Recv()
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("duplicate worker error = %v, want AlreadyExists", err)
 	}
 }
 

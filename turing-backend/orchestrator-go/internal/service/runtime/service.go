@@ -33,6 +33,10 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 	}
 	commands := make(chan *turingv1.RuntimeCommand, 8)
 	s.mu.Lock()
+	if _, ok := s.workers[ready.WorkerId]; ok {
+		s.mu.Unlock()
+		return status.Error(codes.AlreadyExists, "worker already connected")
+	}
 	s.workers[ready.WorkerId] = commands
 	s.mu.Unlock()
 	defer func() {
