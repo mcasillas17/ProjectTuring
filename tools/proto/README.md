@@ -18,3 +18,5 @@ Optional client generators are used when installed:
 - `protoc-gen-swift` and `protoc-gen-grpc-swift` for macOS
 - `grpc_csharp_plugin` for Windows
 - `protoc-gen-grpc-java` for Android-compatible stubs
+
+When optional generators are not installed, `gen/turing/v1/dart`, `gen/turing/v1/swift`, `gen/turing/v1/csharp`, and `gen/turing/v1/kotlin` may contain only `.gitkeep` placeholders. These directories are reserved for future checked-in client stubs.

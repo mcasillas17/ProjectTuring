@@ -62,8 +62,8 @@ gen/turing/v1/
   csharp/              # generated Windows future-client stubs
   kotlin/              # generated Android future-client stubs
 
-turing-backend/go.mod
-turing-backend/go.sum
+go.mod                 # root Go module for generated stubs and Go services
+go.sum
 turing-backend/orchestrator-go/
   cmd/server/main.go
   internal/app/app.go
@@ -145,6 +145,8 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 - Generated: `gen/turing/v1/swift/**`
 - Generated: `gen/turing/v1/csharp/**`
 - Generated: `gen/turing/v1/kotlin/**`
+- Create: `go.mod`
+- Create: `go.sum`
 
 - [ ] **Step 1: Write the proto contract test before adding protos**
 
@@ -925,6 +927,21 @@ Optional client generators are used when installed:
 - `protoc-gen-swift` and `protoc-gen-grpc-swift` for macOS
 - `grpc_csharp_plugin` for Windows
 - `protoc-gen-grpc-java` for Android-compatible stubs
+
+When optional generators are not installed, `gen/turing/v1/dart`, `gen/turing/v1/swift`, `gen/turing/v1/csharp`, and `gen/turing/v1/kotlin` may contain only `.gitkeep` placeholders. These directories are reserved for future checked-in client stubs.
+```
+
+Create root `go.mod` for generated Go stubs and future Go services:
+
+```go
+module github.com/mcasillas17/TuringAgent
+
+go 1.23
+
+require (
+	google.golang.org/grpc v1.69.2
+	google.golang.org/protobuf v1.36.1
+)
 ```
 
 Run:
@@ -939,6 +956,7 @@ Run:
 
 ```bash
 tools/proto/generate.sh
+go mod tidy
 cd turing-backend
 go test ./tests -run TestProtoContracts
 ```
@@ -950,14 +968,15 @@ Expected: PASS for both proto contract tests.
 Run:
 
 ```bash
-git add proto tools/proto gen/turing/v1 turing-backend/tests/proto_contract_test.go
+git add proto tools/proto gen/turing/v1 turing-backend/tests/proto_contract_test.go go.mod go.sum
 git commit -m "feat: add Turing gRPC proto contracts" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
 ## Task 2: Go backend module and shared foundations
 
 **Files:**
-- Create: `turing-backend/go.mod`
+- Modify: `go.mod`
+- Modify: `go.sum`
 - Create: `turing-backend/orchestrator-go/internal/config/config.go`
 - Create: `turing-backend/orchestrator-go/internal/auth/interceptor.go`
 - Create: `turing-backend/orchestrator-go/internal/ids/ids.go`
@@ -1123,12 +1142,12 @@ go test ./orchestrator-go/internal/config ./orchestrator-go/internal/auth ./orch
 
 Expected: FAIL with missing module or undefined package errors.
 
-- [ ] **Step 3: Add the Go module and foundation code**
+- [ ] **Step 3: Update the root Go module and add foundation code**
 
-Create `turing-backend/go.mod`:
+Update root `go.mod` to include the additional Task 2 dependencies:
 
 ```go
-module github.com/mcasillas17/TuringAgent/turing-backend
+module github.com/mcasillas17/TuringAgent
 
 go 1.23
 
@@ -1542,9 +1561,8 @@ Copy the same safe JSON implementation into `turing-backend/agent-runtime-go/int
 Run:
 
 ```bash
-cd turing-backend
 go mod tidy
-go test ./orchestrator-go/internal/config ./orchestrator-go/internal/auth ./orchestrator-go/internal/ids ./orchestrator-go/internal/safejson
+go test ./turing-backend/orchestrator-go/internal/config ./turing-backend/orchestrator-go/internal/auth ./turing-backend/orchestrator-go/internal/ids ./turing-backend/orchestrator-go/internal/safejson
 ```
 
 Expected: PASS.
@@ -1554,7 +1572,7 @@ Expected: PASS.
 Run:
 
 ```bash
-git add turing-backend/go.mod turing-backend/go.sum turing-backend/orchestrator-go turing-backend/agent-runtime-go/internal/safejson
+git add go.mod go.sum turing-backend/orchestrator-go turing-backend/agent-runtime-go/internal/safejson
 git commit -m "feat: add Go backend foundation packages" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -3110,8 +3128,9 @@ WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev sqlite3 libsqlite3-dev && rm -rf /var/lib/apt/lists/*
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
-RUN CGO_ENABLED=1 go build -o /out/turing-orchestrator-go ./orchestrator-go/cmd/server
+COPY gen ./gen
+COPY turing-backend ./turing-backend
+RUN CGO_ENABLED=1 go build -o /out/turing-orchestrator-go ./turing-backend/orchestrator-go/cmd/server
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates sqlite3 libsqlite3-0 && rm -rf /var/lib/apt/lists/*
@@ -3126,9 +3145,8 @@ ENTRYPOINT ["/app/turing-orchestrator-go"]
 Run:
 
 ```bash
-cd turing-backend
-go test ./orchestrator-go/...
-go build ./orchestrator-go/cmd/server
+go test ./turing-backend/orchestrator-go/...
+go build ./turing-backend/orchestrator-go/cmd/server
 ```
 
 Expected: PASS and successful build.
@@ -3327,14 +3345,31 @@ Create `agent/general_assistant.go` that:
 - emits `message.completed` and `run_completed`;
 - emits `run_failed` on provider or tool errors.
 
+Create `turing-backend/agent-runtime-go/Dockerfile` for repository-root build context:
+
+```Dockerfile
+FROM golang:1.23-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY gen ./gen
+COPY turing-backend ./turing-backend
+RUN CGO_ENABLED=0 go build -o /out/turing-agent-runtime-go ./turing-backend/agent-runtime-go/cmd/runtime
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=build /out/turing-agent-runtime-go /app/turing-agent-runtime-go
+ENTRYPOINT ["/app/turing-agent-runtime-go"]
+```
+
 - [ ] **Step 6: Run runtime package tests**
 
 Run:
 
 ```bash
-cd turing-backend
-go test ./agent-runtime-go/...
-go build ./agent-runtime-go/cmd/runtime
+go test ./turing-backend/agent-runtime-go/...
+go build ./turing-backend/agent-runtime-go/cmd/runtime
 ```
 
 Expected: PASS and successful build.
@@ -3354,7 +3389,8 @@ git commit -m "feat: add Go agent runtime worker" -m "Co-authored-by: Copilot <2
 - Create: `turing-backend/tests/grpc_harness_test.go`
 - Create: `turing-backend/tests/cancellation_test.go`
 - Create: `turing-backend/tests/parity_test.go`
-- Modify: `turing-backend/go.mod`
+- Modify: `go.mod`
+- Modify: `go.sum`
 
 - [ ] **Step 1: Write failing integration tests**
 
@@ -3421,7 +3457,7 @@ Expected: PASS.
 Run:
 
 ```bash
-git add turing-backend/tests turing-backend/go.mod turing-backend/go.sum
+git add turing-backend/tests go.mod go.sum
 git commit -m "test: add Go gRPC integration coverage" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -3610,8 +3646,9 @@ Expected: FAIL because Compose still starts the TypeScript orchestrator without 
 
 Modify `turing-backend/infra/docker-compose.yml`:
 
-- change `turing-orchestrator` Dockerfile to `orchestrator-go/Dockerfile`;
-- change `turing-agent-runtime-general` Dockerfile to `agent-runtime-go/Dockerfile`;
+- set Go service build contexts to repository root (`../..` from `turing-backend/infra/docker-compose.yml`);
+- change `turing-orchestrator` Dockerfile to `turing-backend/orchestrator-go/Dockerfile`;
+- change `turing-agent-runtime-general` Dockerfile to `turing-backend/agent-runtime-go/Dockerfile`;
 - keep the same networks and internal MCP service names;
 - expose public gRPC on `${ORCHESTRATOR_PUBLIC_PORT:-3000}:3000`;
 - expose internal gRPC port `3001` only inside Docker networks;
