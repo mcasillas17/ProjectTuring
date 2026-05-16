@@ -83,6 +83,9 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 	if s.runtime != nil {
 		if err := s.runtime.DispatchPending(ctx); err != nil {
 			s.cancelRun(enqueued.RunID)
+			if ctx.Err() != nil {
+				return status.Error(codes.Canceled, "client cancelled stream")
+			}
 			return status.Error(codes.Internal, "dispatch pending job failed")
 		}
 	}
