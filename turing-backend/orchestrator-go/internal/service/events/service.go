@@ -121,11 +121,13 @@ func mapEvent(event repository.Event) *turingv1.TuringEvent {
 
 func mapBusEvent(event Event) *turingv1.TuringEvent {
 	return &turingv1.TuringEvent{
+		EventId:   event.EventID,
 		SessionId: event.SessionID,
 		RunId:     event.RunID,
 		TraceId:   event.TraceID,
 		Sequence:  event.Sequence,
 		Type:      mapEventType(event.Type),
+		CreatedAt: parseEventTimestamp(event.CreatedAt),
 		Payload:   mapPayload(event.PayloadJSON),
 	}
 }

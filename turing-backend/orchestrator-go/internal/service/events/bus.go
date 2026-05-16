@@ -3,11 +3,13 @@ package events
 import "sync"
 
 type Event struct {
+	EventID     string
 	SessionID   string
 	RunID       string
 	TraceID     string
 	Sequence    int64
 	Type        string
+	CreatedAt   string
 	PayloadJSON string
 }
 

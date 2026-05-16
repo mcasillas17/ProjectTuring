@@ -168,11 +168,14 @@ func TestEventServiceSubscribesToReplayAndBusEvents(t *testing.T) {
 			if got.Payload.GetFields()["delta"].GetStringValue() != "hi" {
 				t.Fatalf("payload = %+v", got.Payload)
 			}
+			if got.EventId != "evt_live_2" || got.CreatedAt == nil {
+				t.Fatalf("live metadata missing: %+v", got)
+			}
 			return
 		case err := <-errs:
 			t.Fatalf("Recv bus event: %v", err)
 		case <-ticker.C:
-			h.bus.Publish(Event{SessionID: session.SessionID, TraceID: "trace_1", Sequence: 2, Type: "message.delta", PayloadJSON: `{"delta":"hi"}`})
+			h.bus.Publish(Event{EventID: "evt_live_2", SessionID: session.SessionID, TraceID: "trace_1", Sequence: 2, Type: "message.delta", CreatedAt: "2026-05-15T00:00:00Z", PayloadJSON: `{"delta":"hi"}`})
 		case <-deadline:
 			t.Fatal("timed out waiting for bus event")
 		}
