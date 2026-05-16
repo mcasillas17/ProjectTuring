@@ -13,7 +13,10 @@ import (
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/db"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -175,3 +178,76 @@ func TestEventServiceSubscribesToReplayAndBusEvents(t *testing.T) {
 		}
 	}
 }
+
+func TestEventServiceCatchesEventsPublishedBetweenReplayAndSubscribe(t *testing.T) {
+	h := newEventHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	session, err := h.repo.CreateSession(ctx, "Gap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.repo.AppendEvent(ctx, repository.AppendEventInput{SessionID: session.SessionID, TraceID: "trace_1", Type: "system", PayloadJSON: `{"ready":true}`}); err != nil {
+		t.Fatal(err)
+	}
+
+	stream := &fakeEventStream{ctx: ctx}
+	stream.onSend = func(event *turingv1.TuringEvent) {
+		if event.Sequence != 1 {
+			return
+		}
+		gapEvent, err := h.repo.AppendEvent(ctx, repository.AppendEventInput{SessionID: session.SessionID, TraceID: "trace_1", Type: "message.delta", PayloadJSON: `{"delta":"gap"}`})
+		if err != nil {
+			t.Errorf("append gap event: %v", err)
+			cancel()
+			return
+		}
+		h.bus.Publish(Event{SessionID: session.SessionID, TraceID: gapEvent.TraceID, Sequence: gapEvent.Sequence, Type: gapEvent.Type, PayloadJSON: gapEvent.PayloadJSON})
+	}
+	stream.afterSend = func(event *turingv1.TuringEvent) {
+		if event.Sequence == 2 {
+			cancel()
+		}
+	}
+
+	err = NewServer(h.repo, h.bus).SubscribeSessionEvents(&turingv1.SubscribeSessionEventsRequest{SessionId: session.SessionID}, stream)
+	if status.Code(err) != codes.Canceled {
+		t.Fatalf("SubscribeSessionEvents error = %v, want canceled", err)
+	}
+	if len(stream.sent) < 2 {
+		t.Fatalf("sent %d events, want gap catch-up event: %+v", len(stream.sent), stream.sent)
+	}
+	if stream.sent[1].Sequence != 2 || stream.sent[1].Payload.GetFields()["delta"].GetStringValue() != "gap" {
+		t.Fatalf("bad gap catch-up event: %+v", stream.sent[1])
+	}
+}
+
+type fakeEventStream struct {
+	ctx       context.Context
+	sent      []*turingv1.TuringEvent
+	onSend    func(*turingv1.TuringEvent)
+	afterSend func(*turingv1.TuringEvent)
+}
+
+func (s *fakeEventStream) Send(event *turingv1.TuringEvent) error {
+	if s.onSend != nil {
+		s.onSend(event)
+	}
+	s.sent = append(s.sent, event)
+	if s.afterSend != nil {
+		s.afterSend(event)
+	}
+	return nil
+}
+
+func (s *fakeEventStream) SetHeader(metadata.MD) error { return nil }
+
+func (s *fakeEventStream) SendHeader(metadata.MD) error { return nil }
+
+func (s *fakeEventStream) SetTrailer(metadata.MD) {}
+
+func (s *fakeEventStream) Context() context.Context { return s.ctx }
+
+func (s *fakeEventStream) SendMsg(any) error { return nil }
+
+func (s *fakeEventStream) RecvMsg(any) error { return nil }

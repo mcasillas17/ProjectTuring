@@ -59,13 +59,30 @@ func (s *Server) SubscribeSessionEvents(req *turingv1.SubscribeSessionEventsRequ
 	if err != nil {
 		return status.Error(codes.Internal, "replay events failed")
 	}
+	lastSent := req.AfterSequence
 	for _, event := range events {
 		if err := stream.Send(mapEvent(event)); err != nil {
 			return err
 		}
+		if event.Sequence > lastSent {
+			lastSent = event.Sequence
+		}
 	}
 	ch, unsubscribe := s.bus.Subscribe(req.SessionId)
 	defer unsubscribe()
+	catchup, _, err := s.repo.ReplayEvents(ctx, req.SessionId, lastSent, 500)
+	if err != nil {
+		return status.Error(codes.Internal, "replay events failed")
+	}
+	for _, event := range catchup {
+		if event.Sequence <= lastSent {
+			continue
+		}
+		if err := stream.Send(mapEvent(event)); err != nil {
+			return err
+		}
+		lastSent = event.Sequence
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -74,12 +91,13 @@ func (s *Server) SubscribeSessionEvents(req *turingv1.SubscribeSessionEventsRequ
 			if !ok {
 				return nil
 			}
-			if event.Sequence <= req.AfterSequence {
+			if event.Sequence <= lastSent {
 				continue
 			}
 			if err := stream.Send(mapBusEvent(event)); err != nil {
 				return err
 			}
+			lastSent = event.Sequence
 		}
 	}
 }
