@@ -183,6 +183,37 @@ func (r *Repository) CancelRun(ctx context.Context, runID string, reason string)
 	return tx.Commit()
 }
 
+func (r *Repository) CancelRunWithEvent(ctx context.Context, runID string, reason string, payloadJSON string) (Event, error) {
+	finishedAt := now()
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Event{}, err
+	}
+	defer tx.Rollback()
+	var sessionID, traceID string
+	if err := tx.QueryRowContext(ctx, `SELECT session_id, trace_id FROM agent_runs WHERE id = ?`, runID).Scan(&sessionID, &traceID); err != nil {
+		return Event{}, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'cancelled', cancellation_reason = ?, finished_at = ? WHERE id = ? AND status IN ('queued','running','waiting_approval')`, reason, finishedAt, runID)
+	if err != nil {
+		return Event{}, err
+	}
+	if err := expectOneRow(result, "run is not cancellable"); err != nil {
+		return Event{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'cancelled', finished_at = ?, error_code = 'cancelled', error_message = ? WHERE run_id = ? AND status IN ('pending','in_progress')`, finishedAt, reason, runID); err != nil {
+		return Event{}, err
+	}
+	event, err := appendRunEventTx(ctx, tx, sessionID, runID, traceID, "agent.run.cancelled", payloadJSON, finishedAt)
+	if err != nil {
+		return Event{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Event{}, err
+	}
+	return event, nil
+}
+
 func (r *Repository) GetRun(ctx context.Context, runID string) (Run, error) {
 	var run Run
 	err := r.db.QueryRowContext(ctx, `SELECT id, session_id, status, trace_id, COALESCE(assistant_message_id, '') FROM agent_runs WHERE id = ?`, runID).Scan(&run.RunID, &run.SessionID, &run.Status, &run.TraceID, &run.AssistantMessageID)

@@ -114,6 +114,47 @@ func TestSendMessageStreamsQueuedEvent(t *testing.T) {
 	}
 }
 
+func TestSendMessageAssignsJobToAlreadyConnectedWorker(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	ctx, cancel := context.WithTimeout(h.clientContext(), 2*time.Second)
+	defer cancel()
+	runtimeClient := turingv1.NewRuntimeServiceClient(h.conn)
+	workerStream, err := runtimeClient.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerStream.CloseSend() }()
+	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-before-chat", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvRuntimeCommand(t, workerStream, func(cmd *turingv1.RuntimeCommand) bool {
+		return cmd.GetWorkerAccepted() != nil
+	})
+
+	chatStream, err := h.chatClient.SendMessage(ctx, &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "hello connected worker",
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+		Model:         "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := queued.GetRunQueued().RunId
+	assigned := recvRuntimeCommand(t, workerStream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == runID
+	}).GetRunAssigned()
+	if assigned.UserText != "hello connected worker" {
+		t.Fatalf("assigned job = %+v", assigned)
+	}
+}
+
 func TestSendMessageCancellationCancelsRun(t *testing.T) {
 	h := newHarness(t)
 	sessionID := h.createSession(t)
@@ -137,15 +178,29 @@ func TestSendMessageCancellationCancelsRun(t *testing.T) {
 	if status.Code(err) != codes.Canceled && err != io.EOF {
 		t.Fatalf("Recv after cancel = %v", err)
 	}
+	cancelled := false
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		run, err := h.repo.GetRun(context.Background(), runID)
 		if err == nil && run.Status == "cancelled" {
-			return
+			cancelled = true
+			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("run was not cancelled")
+	if !cancelled {
+		t.Fatal("run was not cancelled")
+	}
+	replayed, _, err := h.repo.ReplayEvents(context.Background(), sessionID, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range replayed {
+		if event.Type == "agent.run.cancelled" && event.RunID.Valid && event.RunID.String == runID {
+			return
+		}
+	}
+	t.Fatalf("agent.run.cancelled event not replayed: %+v", replayed)
 }
 
 func TestSendMessageStreamsRuntimeEvents(t *testing.T) {

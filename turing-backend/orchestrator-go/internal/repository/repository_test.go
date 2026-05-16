@@ -169,6 +169,53 @@ func TestCancelRunUpdatesRunAndJob(t *testing.T) {
 	}
 }
 
+func TestCancelRunWithEventRollsBackWhenEventAppendFails(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Cancel run rollback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "cancel me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkRunRunning(ctx, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		CREATE TRIGGER fail_cancelled_event
+		BEFORE INSERT ON events
+		WHEN NEW.type = 'agent.run.cancelled'
+		BEGIN
+			SELECT RAISE(ABORT, 'cancel event insert failed');
+		END;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = repo.CancelRunWithEvent(ctx, enqueued.RunID, "client_cancelled", `{"reason":"client_cancelled"}`)
+	if err == nil {
+		t.Fatal("CancelRunWithEvent succeeded, want trigger failure")
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("run status = %q, want running after rollback", run.Status)
+	}
+	var jobStatus string
+	if err := database.QueryRowContext(ctx, `SELECT status FROM jobs WHERE id = ?`, enqueued.JobID).Scan(&jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "in_progress" {
+		t.Fatalf("job status = %q, want in_progress after rollback", jobStatus)
+	}
+}
+
 func TestCancelRunFailsForTerminalRun(t *testing.T) {
 	database := openTestDB(t)
 	repo := New(database)

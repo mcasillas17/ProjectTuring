@@ -80,6 +80,11 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 		s.cancelRunIfClientCancelled(ctx, enqueued.RunID)
 		return err
 	}
+	if s.runtime != nil {
+		if err := s.runtime.DispatchPending(ctx); err != nil {
+			return status.Error(codes.Internal, "dispatch pending job failed")
+		}
+	}
 	lastSent := queuedEvent.Sequence
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -156,7 +161,9 @@ func isTerminalEvent(eventType string) bool {
 }
 
 func (s *Server) cancelRun(runID string) {
-	_ = s.repo.CancelRun(context.Background(), runID, "client_cancelled")
+	if event, err := s.repo.CancelRunWithEvent(context.Background(), runID, "client_cancelled", `{"reason":"client_cancelled"}`); err == nil {
+		s.bus.Publish(busEventFromRepository(event))
+	}
 	if s.runtime != nil {
 		s.runtime.CancelRun(context.Background(), runID, "client_cancelled")
 	}

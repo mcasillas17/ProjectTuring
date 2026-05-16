@@ -18,7 +18,11 @@ type Server struct {
 	repo    *repository.Repository
 	bus     *events.Bus
 	mu      sync.Mutex
-	workers map[string]chan *turingv1.RuntimeCommand
+	workers map[string]worker
+}
+
+type worker struct {
+	commands chan *turingv1.RuntimeCommand
 }
 
 func New(repo *repository.Repository, buses ...*events.Bus) *Server {
@@ -26,7 +30,7 @@ func New(repo *repository.Repository, buses ...*events.Bus) *Server {
 	if len(buses) > 0 {
 		bus = buses[0]
 	}
-	return &Server{repo: repo, bus: bus, workers: map[string]chan *turingv1.RuntimeCommand{}}
+	return &Server{repo: repo, bus: bus, workers: map[string]worker{}}
 }
 
 func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServer) error {
@@ -45,7 +49,7 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 		s.mu.Unlock()
 		return status.Error(codes.AlreadyExists, "worker already connected")
 	}
-	s.workers[ready.WorkerId] = commands
+	s.workers[ready.WorkerId] = worker{commands: commands}
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -56,8 +60,8 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 	if err := stream.Send(&turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_WorkerAccepted{WorkerAccepted: &turingv1.RuntimeWorkerAccepted{WorkerId: ready.WorkerId}}}); err != nil {
 		return err
 	}
-	if job, err := s.repo.ClaimNextJob(ctx, "general_assistant", ready.WorkerId); err == nil && job.JobID != "" {
-		commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunAssigned{RunAssigned: mapJob(job)}}
+	if err := s.DispatchPending(ctx); err != nil {
+		return err
 	}
 	recvErr := make(chan error, 1)
 	go func() {
@@ -87,13 +91,33 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 	}
 }
 
+func (s *Server) DispatchPending(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for workerID, worker := range s.workers {
+		job, err := s.repo.ClaimNextJob(ctx, "general_assistant", workerID)
+		if err != nil {
+			return err
+		}
+		if job.JobID == "" {
+			return nil
+		}
+		select {
+		case worker.commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunAssigned{RunAssigned: mapJob(job)}}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
 func (s *Server) CancelRun(ctx context.Context, runID string, reason string) {
 	command := &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunCancelled{RunCancelled: &turingv1.RuntimeRunCancelled{RunId: runID, Reason: reason}}}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, commands := range s.workers {
+	for _, worker := range s.workers {
 		select {
-		case commands <- command:
+		case worker.commands <- command:
 		default:
 		}
 	}
@@ -140,7 +164,7 @@ func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.Run
 		return err
 	}
 	s.publishEvent(event)
-	return nil
+	return s.DispatchPending(ctx)
 }
 
 func (s *Server) handleRunFailed(ctx context.Context, failed *turingv1.RuntimeRunFailed) error {
@@ -156,7 +180,7 @@ func (s *Server) handleRunFailed(ctx context.Context, failed *turingv1.RuntimeRu
 		return err
 	}
 	s.publishEvent(event)
-	return nil
+	return s.DispatchPending(ctx)
 }
 
 func encodePayload(payload map[string]any) (string, error) {
