@@ -82,6 +82,20 @@ func TestSessionServiceServesPublicReadEndpoints(t *testing.T) {
 	if created.SessionId == "" || created.CreatedAt == nil {
 		t.Fatalf("bad CreateSession response: %+v", created)
 	}
+	session, err := client.GetSession(ctx, &turingv1.GetSessionRequest{SessionId: created.SessionId})
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.SessionId != created.SessionId || session.Title != "Test chat" || session.Status != "active" {
+		t.Fatalf("bad GetSession response: %+v", session)
+	}
+	listed, err := client.ListSessions(ctx, &turingv1.ListSessionsRequest{Page: &turingv1.PageRequest{Limit: 10}})
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(listed.Sessions) != 1 || listed.Sessions[0].SessionId != created.SessionId {
+		t.Fatalf("bad ListSessions response: %+v", listed.Sessions)
+	}
 	if _, err := h.repo.EnqueueUserMessage(ctx, repository.EnqueueUserMessageInput{
 		SessionID: created.SessionId, Content: "hello", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
 	}); err != nil {

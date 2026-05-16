@@ -48,6 +48,32 @@ func (r *Repository) CreateSession(ctx context.Context, title string) (Session, 
 	return session, err
 }
 
+func (r *Repository) ListSessions(ctx context.Context, limit int) ([]Session, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, title, status, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []Session
+	for rows.Next() {
+		var session Session
+		if err := rows.Scan(&session.SessionID, &session.Title, &session.Status, &session.CreatedAt, &session.UpdatedAt); err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, rows.Err()
+}
+
+func (r *Repository) GetSession(ctx context.Context, sessionID string) (Session, error) {
+	var session Session
+	err := r.db.QueryRowContext(ctx, `SELECT id, title, status, created_at, updated_at FROM sessions WHERE id = ?`, sessionID).Scan(&session.SessionID, &session.Title, &session.Status, &session.CreatedAt, &session.UpdatedAt)
+	return session, err
+}
+
 func (r *Repository) ListMessages(ctx context.Context, sessionID string, limit int) ([]Message, error) {
 	if limit <= 0 {
 		limit = 50

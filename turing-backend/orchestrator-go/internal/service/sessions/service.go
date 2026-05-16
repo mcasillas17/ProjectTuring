@@ -2,6 +2,8 @@ package sessions
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
@@ -31,6 +33,41 @@ func (s *Server) CreateSession(ctx context.Context, req *turingv1.CreateSessionR
 		return nil, status.Error(codes.Internal, "create session failed")
 	}
 	return &turingv1.CreateSessionResponse{SessionId: session.SessionID, CreatedAt: parseTimestamp(session.CreatedAt)}, nil
+}
+
+func (s *Server) ListSessions(ctx context.Context, req *turingv1.ListSessionsRequest) (*turingv1.ListSessionsResponse, error) {
+	limit := 50
+	if req != nil && req.Page != nil {
+		if req.Page.Limit < 0 {
+			return nil, status.Error(codes.InvalidArgument, "page.limit must be non-negative")
+		}
+		if req.Page.Limit > 0 {
+			limit = int(req.Page.Limit)
+		}
+	}
+	sessions, err := s.repo.ListSessions(ctx, limit)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "list sessions failed")
+	}
+	out := make([]*turingv1.Session, 0, len(sessions))
+	for _, session := range sessions {
+		out = append(out, mapSession(session))
+	}
+	return &turingv1.ListSessionsResponse{Sessions: out, Page: &turingv1.PageResponse{}}, nil
+}
+
+func (s *Server) GetSession(ctx context.Context, req *turingv1.GetSessionRequest) (*turingv1.Session, error) {
+	if req == nil || req.SessionId == "" {
+		return nil, status.Error(codes.InvalidArgument, "session_id is required")
+	}
+	session, err := s.repo.GetSession(ctx, req.SessionId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, status.Error(codes.NotFound, "session not found")
+		}
+		return nil, status.Error(codes.Internal, "get session failed")
+	}
+	return mapSession(session), nil
 }
 
 func (s *Server) ListMessages(ctx context.Context, req *turingv1.ListMessagesRequest) (*turingv1.ListMessagesResponse, error) {
@@ -71,6 +108,20 @@ func (s *Server) ListTools(context.Context, *turingv1.ListToolsRequest) (*turing
 		{ServerName: "files", ToolName: "files.create", Policy: turingv1.ToolPolicy_TOOL_POLICY_APPROVAL_REQUIRED},
 	}
 	return &turingv1.ListToolsResponse{Tools: tools}, nil
+}
+
+func mapSession(session repository.Session) *turingv1.Session {
+	title := ""
+	if session.Title.Valid {
+		title = session.Title.String
+	}
+	return &turingv1.Session{
+		SessionId: session.SessionID,
+		Title:     title,
+		Status:    session.Status,
+		CreatedAt: parseTimestamp(session.CreatedAt),
+		UpdatedAt: parseTimestamp(session.UpdatedAt),
+	}
 }
 
 func mapMessage(sessionID string, message repository.Message) *turingv1.Message {
