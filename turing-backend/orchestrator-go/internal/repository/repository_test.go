@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -181,6 +182,132 @@ func TestCancelRunFailsForTerminalRun(t *testing.T) {
 	}
 	if run.Status != "completed" {
 		t.Fatalf("run status = %q, want completed", run.Status)
+	}
+}
+
+func TestClaimNextJobMarksRunAndJobRunning(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Claim job")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "claim me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := repo.ClaimNextJob(ctx, "general_assistant", "worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.JobID != enqueued.JobID || job.RunID != enqueued.RunID || job.SessionID != session.SessionID {
+		t.Fatalf("claimed wrong job: %+v", job)
+	}
+	if job.UserMessageID != enqueued.UserMessageID || job.AssistantMessageID != enqueued.AssistantMessageID || job.TraceID != enqueued.TraceID {
+		t.Fatalf("bad job identifiers: %+v", job)
+	}
+	if job.ModelProvider != "ollama" || job.Model != "llama3.2" || job.UserText != "claim me" || job.Attempt != 1 {
+		t.Fatalf("bad job payload: %+v", job)
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("run status = %q, want running", run.Status)
+	}
+	var jobStatus, leaseOwner string
+	var pickedUpAt sql.NullString
+	if err := database.QueryRowContext(ctx, `
+		SELECT status, lease_owner, picked_up_at
+		FROM jobs
+		WHERE id = ?
+	`, enqueued.JobID).Scan(&jobStatus, &leaseOwner, &pickedUpAt); err != nil {
+		t.Fatalf("query claimed job: %v", err)
+	}
+	if jobStatus != "in_progress" || leaseOwner != "worker-1" || !pickedUpAt.Valid || pickedUpAt.String == "" {
+		t.Fatalf("bad claimed job row: status=%q lease_owner=%q picked_up_at=%q", jobStatus, leaseOwner, pickedUpAt.String)
+	}
+}
+
+func TestCompleteRunUpdatesRunJobAndAssistantMessage(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Complete run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "complete me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkRunRunning(ctx, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CompleteRun(ctx, enqueued.RunID, enqueued.AssistantMessageID, "done"); err != nil {
+		t.Fatal(err)
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "completed" {
+		t.Fatalf("run status = %q, want completed", run.Status)
+	}
+	var jobStatus, assistantContent string
+	if err := database.QueryRowContext(ctx, `SELECT status FROM jobs WHERE id = ?`, enqueued.JobID).Scan(&jobStatus); err != nil {
+		t.Fatalf("query completed job: %v", err)
+	}
+	if err := database.QueryRowContext(ctx, `SELECT content FROM messages WHERE id = ?`, enqueued.AssistantMessageID).Scan(&assistantContent); err != nil {
+		t.Fatalf("query assistant message: %v", err)
+	}
+	if jobStatus != "completed" || assistantContent != "done" {
+		t.Fatalf("completion status=%q assistant_content=%q", jobStatus, assistantContent)
+	}
+}
+
+func TestFailRunUpdatesRunAndJobError(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Fail run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "fail me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkRunRunning(ctx, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.FailRun(ctx, enqueued.RunID, "model_error", "model failed"); err != nil {
+		t.Fatal(err)
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "failed" {
+		t.Fatalf("run status = %q, want failed", run.Status)
+	}
+	var jobStatus, runCode, runMessage, jobCode, jobMessage string
+	if err := database.QueryRowContext(ctx, `SELECT error_code, error_message FROM agent_runs WHERE id = ?`, enqueued.RunID).Scan(&runCode, &runMessage); err != nil {
+		t.Fatalf("query failed run: %v", err)
+	}
+	if err := database.QueryRowContext(ctx, `SELECT status, error_code, error_message FROM jobs WHERE id = ?`, enqueued.JobID).Scan(&jobStatus, &jobCode, &jobMessage); err != nil {
+		t.Fatalf("query failed job: %v", err)
+	}
+	if jobStatus != "failed" || runCode != "model_error" || runMessage != "model failed" || jobCode != "model_error" || jobMessage != "model failed" {
+		t.Fatalf("bad failure state: job_status=%q run=%q/%q job=%q/%q", jobStatus, runCode, runMessage, jobCode, jobMessage)
 	}
 }
 

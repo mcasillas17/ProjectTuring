@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/ids"
@@ -23,6 +24,19 @@ type EnqueueUserMessageResult struct {
 	JobID              string
 	TraceID            string
 	Status             string
+}
+
+type Job struct {
+	JobID              string
+	RunID              string
+	SessionID          string
+	UserMessageID      string
+	AssistantMessageID string
+	TraceID            string
+	ModelProvider      string
+	Model              string
+	UserText           string
+	Attempt            int
 }
 
 func (r *Repository) EnqueueUserMessage(ctx context.Context, input EnqueueUserMessageInput) (EnqueueUserMessageResult, error) {
@@ -69,4 +83,75 @@ func (r *Repository) EnqueueUserMessage(ctx context.Context, input EnqueueUserMe
 		return EnqueueUserMessageResult{}, err
 	}
 	return EnqueueUserMessageResult{SessionID: input.SessionID, UserMessageID: userMessageID, AssistantMessageID: assistantMessageID, RunID: runID, JobID: jobID, TraceID: traceID, Status: "queued"}, nil
+}
+
+func (r *Repository) ClaimNextJob(ctx context.Context, agentID string, leaseOwner string) (Job, error) {
+	pickedUpAt := now()
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer tx.Rollback()
+	var job Job
+	var payloadJSON string
+	err = tx.QueryRowContext(ctx, `
+		SELECT
+			j.id,
+			j.run_id,
+			r.session_id,
+			r.user_message_id,
+			COALESCE(r.assistant_message_id, ''),
+			r.trace_id,
+			r.model_provider,
+			r.model_name,
+			j.payload_json,
+			j.attempt
+		FROM jobs j
+		JOIN agent_runs r ON r.id = j.run_id
+		WHERE j.agent_id = ? AND j.status = 'pending' AND r.status = 'queued'
+		ORDER BY j.created_at, j.id
+		LIMIT 1
+	`, agentID).Scan(
+		&job.JobID,
+		&job.RunID,
+		&job.SessionID,
+		&job.UserMessageID,
+		&job.AssistantMessageID,
+		&job.TraceID,
+		&job.ModelProvider,
+		&job.Model,
+		&payloadJSON,
+		&job.Attempt,
+	)
+	if err == sql.ErrNoRows {
+		return Job{}, nil
+	}
+	if err != nil {
+		return Job{}, err
+	}
+	var payload struct {
+		UserText string `json:"userText"`
+	}
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+		return Job{}, err
+	}
+	job.UserText = payload.UserText
+	result, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'in_progress', lease_owner = ?, picked_up_at = ? WHERE id = ? AND status = 'pending'`, leaseOwner, pickedUpAt, job.JobID)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := expectOneRow(result, "pending job not found for claim"); err != nil {
+		return Job{}, err
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'running', started_at = COALESCE(started_at, ?), worker_id = ? WHERE id = ? AND status = 'queued'`, pickedUpAt, leaseOwner, job.RunID)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := expectOneRow(result, "run is not queued"); err != nil {
+		return Job{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	return job, nil
 }
