@@ -152,6 +152,45 @@ func TestAssignsPendingJobToReadyWorker(t *testing.T) {
 	}
 }
 
+func TestDispatchPendingPublishesRunStartedEvent(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSessionAndRun(t, "hello")
+	ch, unsubscribe := h.bus.Subscribe(sessionID)
+	defer unsubscribe()
+	client := h.runtimeClient(t)
+	stream, err := client.ConnectWorker(h.internalContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-started", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	assigned := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		return cmd.GetRunAssigned() != nil
+	}).GetRunAssigned()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for agent.run.started event")
+		case event := <-ch:
+			if event.Type != "agent.run.started" || event.RunID != assigned.RunId || event.TraceID != assigned.TraceId {
+				continue
+			}
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+				t.Fatalf("decode started payload: %v", err)
+			}
+			if payload["runId"] != assigned.RunId || payload["jobId"] != assigned.JobId || payload["status"] != "running" || payload["agentId"] != "general_assistant" || payload["attempt"] != float64(assigned.Attempt) {
+				t.Fatalf("bad started payload: %+v", payload)
+			}
+			return
+		}
+	}
+}
+
 func TestCancelRunSendsRuntimeCommand(t *testing.T) {
 	h := newHarness(t)
 	runID := h.createRunningRun(t, "cancel me")

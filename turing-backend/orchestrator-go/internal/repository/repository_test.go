@@ -89,6 +89,13 @@ func TestSessionMessageRunJobTransaction(t *testing.T) {
 	if result.QueuedEvent.Type != "agent.run.queued" || !result.QueuedEvent.RunID.Valid || result.QueuedEvent.RunID.String != result.RunID || result.QueuedEvent.TraceID != result.TraceID {
 		t.Fatalf("bad queued event result: %+v", result.QueuedEvent)
 	}
+	var queuedPayload map[string]any
+	if err := json.Unmarshal([]byte(result.QueuedEvent.PayloadJSON), &queuedPayload); err != nil {
+		t.Fatalf("decode queued event payload: %v", err)
+	}
+	if queuedPayload["runId"] != result.RunID || queuedPayload["jobId"] != result.JobID || queuedPayload["status"] != "queued" || queuedPayload["agentId"] != "general_assistant" {
+		t.Fatalf("bad queued event payload: %+v", queuedPayload)
+	}
 	replayed, latest, err := repo.ReplayEvents(ctx, session.SessionID, 0, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -290,6 +297,67 @@ func TestClaimNextJobMarksRunAndJobRunning(t *testing.T) {
 	}
 	if jobStatus != "in_progress" || leaseOwner != "worker-1" || !pickedUpAt.Valid || pickedUpAt.String == "" {
 		t.Fatalf("bad claimed job row: status=%q lease_owner=%q picked_up_at=%q", jobStatus, leaseOwner, pickedUpAt.String)
+	}
+	replayed, latest, err := repo.ReplayEvents(ctx, session.SessionID, enqueued.QueuedEvent.Sequence, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest != enqueued.QueuedEvent.Sequence+1 || len(replayed) != 1 {
+		t.Fatalf("started event replay latest=%d events=%+v", latest, replayed)
+	}
+	started := replayed[0]
+	if started.Type != "agent.run.started" || !started.RunID.Valid || started.RunID.String != enqueued.RunID || started.TraceID != enqueued.TraceID {
+		t.Fatalf("bad started event: %+v", started)
+	}
+	var startedPayload map[string]any
+	if err := json.Unmarshal([]byte(started.PayloadJSON), &startedPayload); err != nil {
+		t.Fatalf("decode started event payload: %v", err)
+	}
+	if startedPayload["runId"] != enqueued.RunID || startedPayload["jobId"] != enqueued.JobID || startedPayload["status"] != "running" || startedPayload["agentId"] != "general_assistant" || startedPayload["attempt"] != float64(1) {
+		t.Fatalf("bad started event payload: %+v", startedPayload)
+	}
+}
+
+func TestClaimNextJobRollsBackWhenStartedEventAppendFails(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Claim rollback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "claim me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		CREATE TRIGGER fail_started_event
+		BEFORE INSERT ON events
+		WHEN NEW.type = 'agent.run.started'
+		BEGIN
+			SELECT RAISE(ABORT, 'started event insert failed');
+		END;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ClaimNextJob(ctx, "general_assistant", "worker-1"); err == nil {
+		t.Fatal("ClaimNextJob succeeded, want started event append failure")
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "queued" {
+		t.Fatalf("run status = %q, want queued after rollback", run.Status)
+	}
+	var jobStatus string
+	if err := database.QueryRowContext(ctx, `SELECT status FROM jobs WHERE id = ?`, enqueued.JobID).Scan(&jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "pending" {
+		t.Fatalf("job status = %q, want pending after rollback", jobStatus)
 	}
 }
 

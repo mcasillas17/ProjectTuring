@@ -224,6 +224,7 @@ func (s *Server) dispatchToWorker(ctx context.Context, workerID string, worker *
 	select {
 	case worker.commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunAssigned{RunAssigned: mapJob(job)}}:
 		worker.assignments[job.RunID] = job.JobID
+		s.publishEvent(job.StartedEvent)
 		return true, false, nil
 	case <-ctx.Done():
 		s.requeueAssignments([]assignment{{jobID: job.JobID, runID: job.RunID}})

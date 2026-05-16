@@ -249,6 +249,14 @@ func mapChatEvent(event events.Event) *turingv1.ChatStreamEvent {
 			Content:   payloadString(payload, "content"),
 		}}
 		return out
+	case "agent.run.started":
+		out := baseChatEvent(event)
+		out.Event = &turingv1.ChatStreamEvent_RunStarted{RunStarted: &turingv1.RunStarted{
+			RunId:   event.RunID,
+			JobId:   payloadString(payload, "jobId", "job_id"),
+			Attempt: payloadInt32(payload, "attempt"),
+		}}
+		return out
 	case "agent.run.completed":
 		out := baseChatEvent(event)
 		out.Event = &turingv1.ChatStreamEvent_RunCompleted{RunCompleted: &turingv1.RunCompleted{
@@ -317,6 +325,20 @@ func payloadString(payload map[string]any, names ...string) string {
 func payloadBool(payload map[string]any, name string) bool {
 	value, ok := payload[name].(bool)
 	return ok && value
+}
+
+func payloadInt32(payload map[string]any, names ...string) int32 {
+	for _, name := range names {
+		value, ok := payload[name].(json.Number)
+		if !ok {
+			continue
+		}
+		parsed, err := value.Int64()
+		if err == nil && parsed >= -2147483648 && parsed <= 2147483647 {
+			return int32(parsed)
+		}
+	}
+	return 0
 }
 
 func persistedEvent(event events.Event, payload map[string]any) (*turingv1.TuringEvent, error) {

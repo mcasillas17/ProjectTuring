@@ -38,6 +38,7 @@ type Job struct {
 	Model              string
 	UserText           string
 	Attempt            int
+	StartedEvent       Event
 }
 
 func (r *Repository) EnqueueUserMessage(ctx context.Context, input EnqueueUserMessageInput) (EnqueueUserMessageResult, error) {
@@ -65,7 +66,7 @@ func (r *Repository) EnqueueUserMessage(ctx context.Context, input EnqueueUserMe
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_runs (id, session_id, user_message_id, assistant_message_id, agent_id, trace_id, status, model_provider, model_name, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)`, runID, input.SessionID, userMessageID, assistantMessageID, input.AgentID, traceID, input.ModelProvider, input.Model, createdAt); err != nil {
 		return EnqueueUserMessageResult{}, err
 	}
-	payload, err := json.Marshal(map[string]any{
+	jobPayload, err := json.Marshal(map[string]any{
 		"userText":           input.Content,
 		"sessionId":          input.SessionID,
 		"userMessageId":      userMessageID,
@@ -77,24 +78,20 @@ func (r *Repository) EnqueueUserMessage(ctx context.Context, input EnqueueUserMe
 	if err != nil {
 		return EnqueueUserMessageResult{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO jobs (id, run_id, agent_id, status, payload_json, created_at) VALUES (?, ?, ?, 'pending', ?, ?)`, jobID, runID, input.AgentID, string(payload), createdAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO jobs (id, run_id, agent_id, status, payload_json, created_at) VALUES (?, ?, ?, 'pending', ?, ?)`, jobID, runID, input.AgentID, string(jobPayload), createdAt); err != nil {
 		return EnqueueUserMessageResult{}, err
 	}
-	var eventSequence int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE session_id = ?`, input.SessionID).Scan(&eventSequence); err != nil {
+	queuedPayload, err := json.Marshal(map[string]any{
+		"runId":   runID,
+		"jobId":   jobID,
+		"status":  "queued",
+		"agentId": input.AgentID,
+	})
+	if err != nil {
 		return EnqueueUserMessageResult{}, err
 	}
-	queuedEvent := Event{
-		EventID:     ids.New("evt"),
-		SessionID:   input.SessionID,
-		RunID:       sql.NullString{String: runID, Valid: true},
-		TraceID:     traceID,
-		Sequence:    eventSequence,
-		Type:        "agent.run.queued",
-		PayloadJSON: `{"status":"queued"}`,
-		CreatedAt:   createdAt,
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO events (id, session_id, run_id, trace_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, queuedEvent.EventID, queuedEvent.SessionID, runID, queuedEvent.TraceID, queuedEvent.Sequence, queuedEvent.Type, queuedEvent.PayloadJSON, queuedEvent.CreatedAt); err != nil {
+	queuedEvent, err := appendRunEventTx(ctx, tx, input.SessionID, runID, traceID, "agent.run.queued", string(queuedPayload), createdAt)
+	if err != nil {
 		return EnqueueUserMessageResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -168,6 +165,21 @@ func (r *Repository) ClaimNextJob(ctx context.Context, agentID string, leaseOwne
 	if err := expectOneRow(result, "run is not queued"); err != nil {
 		return Job{}, err
 	}
+	startedPayload, err := json.Marshal(map[string]any{
+		"runId":   job.RunID,
+		"jobId":   job.JobID,
+		"status":  "running",
+		"agentId": agentID,
+		"attempt": job.Attempt,
+	})
+	if err != nil {
+		return Job{}, err
+	}
+	startedEvent, err := appendRunEventTx(ctx, tx, job.SessionID, job.RunID, job.TraceID, "agent.run.started", string(startedPayload), pickedUpAt)
+	if err != nil {
+		return Job{}, err
+	}
+	job.StartedEvent = startedEvent
 	if err := tx.Commit(); err != nil {
 		return Job{}, err
 	}

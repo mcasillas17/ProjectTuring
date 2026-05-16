@@ -156,6 +156,51 @@ func TestSendMessageAssignsJobToAlreadyConnectedWorker(t *testing.T) {
 	}
 }
 
+func TestSendMessageStreamsRunStartedWhenWorkerClaimsJob(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	ctx, cancel := context.WithTimeout(h.clientContext(), 2*time.Second)
+	defer cancel()
+	runtimeClient := turingv1.NewRuntimeServiceClient(h.conn)
+	workerStream, err := runtimeClient.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerStream.CloseSend() }()
+	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-started-chat", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvRuntimeCommand(t, workerStream, func(cmd *turingv1.RuntimeCommand) bool {
+		return cmd.GetWorkerAccepted() != nil
+	})
+
+	chatStream, err := h.chatClient.SendMessage(ctx, &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "hello started",
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+		Model:         "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := queued.GetRunQueued().RunId
+	assigned := recvRuntimeCommand(t, workerStream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == runID
+	}).GetRunAssigned()
+	started, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.GetRunStarted().GetRunId() != runID || started.GetRunStarted().GetJobId() != assigned.JobId || started.GetRunStarted().GetAttempt() != assigned.Attempt {
+		t.Fatalf("run_started = %+v, assigned = %+v", started.GetRunStarted(), assigned)
+	}
+}
+
 func TestSendMessageCancelsRunWhenDispatchFails(t *testing.T) {
 	h := newHarness(t)
 	sessionID := h.createSession(t)
@@ -329,6 +374,7 @@ func TestSendMessageDoesNotBroadcastCancellationWhenPersistenceFails(t *testing.
 		assigned := cmd.GetRunAssigned()
 		return assigned != nil && assigned.RunId == runID
 	})
+	recvChatRunStarted(t, chatStream, runID)
 	if _, err := h.database.ExecContext(context.Background(), `
 		CREATE TRIGGER fail_chat_cancel_event
 		BEFORE INSERT ON events
@@ -402,6 +448,7 @@ func TestSendMessageStreamsRuntimeEvents(t *testing.T) {
 		assigned := cmd.GetRunAssigned()
 		return assigned != nil && assigned.RunId == runID
 	})
+	recvChatRunStarted(t, chatStream, runID)
 	payload, err := structpb.NewStruct(map[string]any{"delta": "hi"})
 	if err != nil {
 		t.Fatal(err)
@@ -457,6 +504,7 @@ func TestSendMessageStreamsRuntimeRunCompleted(t *testing.T) {
 		assigned := cmd.GetRunAssigned()
 		return assigned != nil && assigned.RunId == runID
 	}).GetRunAssigned()
+	recvChatRunStarted(t, chatStream, runID)
 	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
 		RunId:              runID,
 		AssistantMessageId: assigned.AssistantMessageId,
@@ -508,6 +556,7 @@ func TestSendMessageWaitsForRunCompletedAfterMessageCompleted(t *testing.T) {
 		assigned := cmd.GetRunAssigned()
 		return assigned != nil && assigned.RunId == runID
 	}).GetRunAssigned()
+	recvChatRunStarted(t, chatStream, runID)
 	messagePayload, err := structpb.NewStruct(map[string]any{"messageId": assigned.AssistantMessageId, "content": "done"})
 	if err != nil {
 		t.Fatal(err)
@@ -611,6 +660,19 @@ func recvRuntimeCommand(t *testing.T, stream turingv1.RuntimeService_ConnectWork
 	}
 }
 
+func recvChatRunStarted(t *testing.T, stream turingv1.ChatService_SendMessageClient, runID string) *turingv1.RunStarted {
+	t.Helper()
+	event, err := stream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := event.GetRunStarted()
+	if started == nil || started.RunId != runID {
+		t.Fatalf("chat event = %+v, want run_started for %s", event, runID)
+	}
+	return started
+}
+
 func TestMapChatEventConvertsKnownEvents(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -638,8 +700,19 @@ func TestMapChatEventConvertsKnownEvents(t *testing.T) {
 			},
 		},
 		{
+			name:  "run started",
+			event: events.Event{SessionID: "sess_1", RunID: "run_1", TraceID: "trace_1", Sequence: 4, Type: "agent.run.started", PayloadJSON: `{"jobId":"job_1","attempt":2}`},
+			assertFn: func(t *testing.T, got *turingv1.ChatStreamEvent) {
+				t.Helper()
+				started := got.GetRunStarted()
+				if started.GetRunId() != "run_1" || started.GetJobId() != "job_1" || started.GetAttempt() != 2 {
+					t.Fatalf("run_started = %+v", started)
+				}
+			},
+		},
+		{
 			name:  "run completed",
-			event: events.Event{SessionID: "sess_1", RunID: "run_1", TraceID: "trace_1", Sequence: 4, Type: "agent.run.completed", PayloadJSON: `{}`},
+			event: events.Event{SessionID: "sess_1", RunID: "run_1", TraceID: "trace_1", Sequence: 5, Type: "agent.run.completed", PayloadJSON: `{}`},
 			assertFn: func(t *testing.T, got *turingv1.ChatStreamEvent) {
 				t.Helper()
 				if got.GetRunCompleted().GetRunId() != "run_1" {
@@ -649,7 +722,7 @@ func TestMapChatEventConvertsKnownEvents(t *testing.T) {
 		},
 		{
 			name:  "run failed",
-			event: events.Event{SessionID: "sess_1", RunID: "run_1", TraceID: "trace_1", Sequence: 5, Type: "agent.run.failed", PayloadJSON: `{"code":"model_error","message":"boom","retryable":true}`},
+			event: events.Event{SessionID: "sess_1", RunID: "run_1", TraceID: "trace_1", Sequence: 6, Type: "agent.run.failed", PayloadJSON: `{"code":"model_error","message":"boom","retryable":true}`},
 			assertFn: func(t *testing.T, got *turingv1.ChatStreamEvent) {
 				t.Helper()
 				failed := got.GetRunFailed()
@@ -660,7 +733,7 @@ func TestMapChatEventConvertsKnownEvents(t *testing.T) {
 		},
 		{
 			name:  "run cancelled",
-			event: events.Event{SessionID: "sess_1", RunID: "run_1", TraceID: "trace_1", Sequence: 6, Type: "agent.run.cancelled", PayloadJSON: `{"reason":"client_cancelled"}`},
+			event: events.Event{SessionID: "sess_1", RunID: "run_1", TraceID: "trace_1", Sequence: 7, Type: "agent.run.cancelled", PayloadJSON: `{"reason":"client_cancelled"}`},
 			assertFn: func(t *testing.T, got *turingv1.ChatStreamEvent) {
 				t.Helper()
 				if got.GetRunCancelled().GetReason() != "client_cancelled" {
