@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+import "google/protobuf/struct.proto";
+import "turing/v1/common.proto";
+import "turing/v1/events.proto";
+
+message SendMessageRequest {
+  string session_id = 1;
+  string content = 2;
+  string content_type = 3;
+  AgentId agent_id = 4;
+  ModelProvider model_provider = 5;
+  string model = 6;
+  string idempotency_key = 7;
+}
+
+message RunQueued {
+  string run_id = 1;
+  string job_id = 2;
+  string trace_id = 3;
+}
+
+message RunStarted {
+  string run_id = 1;
+  string job_id = 2;
+  int32 attempt = 3;
+}
+
+message MessageStarted {
+  string message_id = 1;
+  MessageRole role = 2;
+}
+
+message TokenDelta {
+  string message_id = 1;
+  string delta = 2;
+}
+
+message ToolEvent {
+  string tool_call_id = 1;
+  string server_name = 2;
+  string tool_name = 3;
+  google.protobuf.Struct payload = 4;
+}
+
+message ApprovalEvent {
+  string approval_id = 1;
+  string tool_name = 2;
+  string args_summary = 3;
+}
+
+message MessageCompleted {
+  string message_id = 1;
+  string content = 2;
+}
+
+message RunCompleted {
+  string run_id = 1;
+  string assistant_message_id = 2;
+}
+
+message RunFailed {
+  string run_id = 1;
+  string code = 2;
+  string message = 3;
+  bool retryable = 4;
+}
+
+message RunCancelled {
+  string run_id = 1;
+  string reason = 2;
+}
+
+message ChatStreamEvent {
+  string session_id = 1;
+  string run_id = 2;
+  string trace_id = 3;
+  int64 sequence = 4;
+  oneof event {
+    RunQueued run_queued = 10;
+    RunStarted run_started = 11;
+    MessageStarted message_started = 12;
+    TokenDelta token_delta = 13;
+    ToolEvent tool_call_started = 14;
+    ToolEvent tool_call_completed = 15;
+    ToolEvent tool_call_failed = 16;
+    ApprovalEvent approval_requested = 17;
+    ApprovalEvent approval_approved = 18;
+    ApprovalEvent approval_denied = 19;
+    ApprovalEvent approval_expired = 20;
+    ApprovalEvent approval_consumed = 21;
+    MessageCompleted message_completed = 22;
+    RunCompleted run_completed = 23;
+    RunFailed run_failed = 24;
+    RunCancelled run_cancelled = 25;
+    TuringEvent persisted_event = 26;
+  }
+}
+
+service ChatService {
+  rpc SendMessage(SendMessageRequest) returns (stream ChatStreamEvent);
+}

@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool ok = 1;
+}
+
+message VersionRequest {}
+
+message VersionResponse {
+  string version = 1;
+  string schema_version = 2;
+}
+
+service HealthService {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc Version(VersionRequest) returns (VersionResponse);
+}

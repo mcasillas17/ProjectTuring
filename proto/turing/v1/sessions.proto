@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+import "google/protobuf/timestamp.proto";
+import "turing/v1/common.proto";
+
+message Session {
+  string session_id = 1;
+  string title = 2;
+  string status = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message CreateSessionRequest {
+  string title = 1;
+}
+
+message CreateSessionResponse {
+  string session_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+}
+
+message ListSessionsRequest {
+  PageRequest page = 1;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  PageResponse page = 2;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message ListMessagesRequest {
+  string session_id = 1;
+  int32 limit = 2;
+}
+
+message ListMessagesResponse {
+  repeated Message messages = 1;
+}
+
+message GetConfigRequest {}
+
+message GetConfigResponse {
+  repeated ProviderConfig providers = 1;
+  bool approvals_enabled = 2;
+  bool files_mcp_enabled = 3;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+  repeated AgentDescriptor agents = 1;
+}
+
+message ToolDescriptor {
+  string server_name = 1;
+  string tool_name = 2;
+  ToolPolicy policy = 3;
+}
+
+message ListToolsRequest {}
+
+message ListToolsResponse {
+  repeated ToolDescriptor tools = 1;
+}
+
+service SessionService {
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc GetSession(GetSessionRequest) returns (Session);
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+}

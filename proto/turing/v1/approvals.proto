@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+enum ApprovalStatus {
+  APPROVAL_STATUS_UNSPECIFIED = 0;
+  APPROVAL_STATUS_PENDING = 1;
+  APPROVAL_STATUS_APPROVED = 2;
+  APPROVAL_STATUS_DENIED = 3;
+  APPROVAL_STATUS_EXPIRED = 4;
+  APPROVAL_STATUS_CONSUMED = 5;
+}
+
+message ApproveApprovalRequest {
+  string approval_id = 1;
+  string comment = 2;
+}
+
+message DenyApprovalRequest {
+  string approval_id = 1;
+  string reason = 2;
+}
+
+message ApprovalResponse {
+  string approval_id = 1;
+  ApprovalStatus status = 2;
+}
+
+service ApprovalService {
+  rpc ApproveApproval(ApproveApprovalRequest) returns (ApprovalResponse);
+  rpc DenyApproval(DenyApprovalRequest) returns (ApprovalResponse);
+}

@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+enum TuringEventType {
+  TURING_EVENT_TYPE_UNSPECIFIED = 0;
+  TURING_EVENT_TYPE_MESSAGE_STARTED = 1;
+  TURING_EVENT_TYPE_MESSAGE_DELTA = 2;
+  TURING_EVENT_TYPE_MESSAGE_COMPLETED = 3;
+  TURING_EVENT_TYPE_AGENT_RUN_QUEUED = 4;
+  TURING_EVENT_TYPE_AGENT_RUN_STARTED = 5;
+  TURING_EVENT_TYPE_AGENT_RUN_STEP = 6;
+  TURING_EVENT_TYPE_AGENT_RUN_COMPLETED = 7;
+  TURING_EVENT_TYPE_AGENT_RUN_FAILED = 8;
+  TURING_EVENT_TYPE_AGENT_RUN_CANCELLED = 9;
+  TURING_EVENT_TYPE_TOOL_CALL_STARTED = 10;
+  TURING_EVENT_TYPE_TOOL_CALL_COMPLETED = 11;
+  TURING_EVENT_TYPE_TOOL_CALL_FAILED = 12;
+  TURING_EVENT_TYPE_TOOL_CALL_DENIED = 13;
+  TURING_EVENT_TYPE_APPROVAL_REQUESTED = 14;
+  TURING_EVENT_TYPE_APPROVAL_APPROVED = 15;
+  TURING_EVENT_TYPE_APPROVAL_DENIED = 16;
+  TURING_EVENT_TYPE_APPROVAL_EXPIRED = 17;
+  TURING_EVENT_TYPE_APPROVAL_CONSUMED = 18;
+  TURING_EVENT_TYPE_ERROR = 19;
+  TURING_EVENT_TYPE_SYSTEM = 20;
+}
+
+message TuringEvent {
+  string event_id = 1;
+  string session_id = 2;
+  string run_id = 3;
+  string trace_id = 4;
+  int64 sequence = 5;
+  TuringEventType type = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Struct payload = 8;
+}
+
+message ListEventsRequest {
+  string session_id = 1;
+  int64 after_sequence = 2;
+  int32 limit = 3;
+}
+
+message ListEventsResponse {
+  repeated TuringEvent events = 1;
+  int64 latest_sequence = 2;
+  bool resync_required = 3;
+}
+
+message SubscribeSessionEventsRequest {
+  string session_id = 1;
+  int64 after_sequence = 2;
+}
+
+service EventService {
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  rpc SubscribeSessionEvents(SubscribeSessionEventsRequest) returns (stream TuringEvent);
+}
