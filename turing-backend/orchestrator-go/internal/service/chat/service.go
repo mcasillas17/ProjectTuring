@@ -82,6 +82,7 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 	}
 	if s.runtime != nil {
 		if err := s.runtime.DispatchPending(ctx); err != nil {
+			s.cancelRun(enqueued.RunID)
 			return status.Error(codes.Internal, "dispatch pending job failed")
 		}
 	}
@@ -161,11 +162,13 @@ func isTerminalEvent(eventType string) bool {
 }
 
 func (s *Server) cancelRun(runID string) {
-	if event, err := s.repo.CancelRunWithEvent(context.Background(), runID, "client_cancelled", `{"reason":"client_cancelled"}`); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if event, err := s.repo.CancelRunWithEvent(ctx, runID, "client_cancelled", `{"reason":"client_cancelled"}`); err == nil {
 		s.bus.Publish(busEventFromRepository(event))
 	}
 	if s.runtime != nil {
-		s.runtime.CancelRun(context.Background(), runID, "client_cancelled")
+		s.runtime.CancelRun(ctx, runID, "client_cancelled")
 	}
 }
 

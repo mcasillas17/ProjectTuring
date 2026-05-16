@@ -18,11 +18,13 @@ type Server struct {
 	repo    *repository.Repository
 	bus     *events.Bus
 	mu      sync.Mutex
-	workers map[string]worker
+	workers map[string]*worker
 }
 
 type worker struct {
 	commands chan *turingv1.RuntimeCommand
+	mu       sync.Mutex
+	closed   bool
 }
 
 func New(repo *repository.Repository, buses ...*events.Bus) *Server {
@@ -30,7 +32,7 @@ func New(repo *repository.Repository, buses ...*events.Bus) *Server {
 	if len(buses) > 0 {
 		bus = buses[0]
 	}
-	return &Server{repo: repo, bus: bus, workers: map[string]worker{}}
+	return &Server{repo: repo, bus: bus, workers: map[string]*worker{}}
 }
 
 func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServer) error {
@@ -49,13 +51,14 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 		s.mu.Unlock()
 		return status.Error(codes.AlreadyExists, "worker already connected")
 	}
-	s.workers[ready.WorkerId] = worker{commands: commands}
+	connectedWorker := &worker{commands: commands}
+	s.workers[ready.WorkerId] = connectedWorker
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		delete(s.workers, ready.WorkerId)
-		close(commands)
 		s.mu.Unlock()
+		connectedWorker.close()
 	}()
 	if err := stream.Send(&turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_WorkerAccepted{WorkerAccepted: &turingv1.RuntimeWorkerAccepted{WorkerId: ready.WorkerId}}}); err != nil {
 		return err
@@ -92,35 +95,85 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 }
 
 func (s *Server) DispatchPending(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for workerID, worker := range s.workers {
-		job, err := s.repo.ClaimNextJob(ctx, "general_assistant", workerID)
+	workers := s.snapshotWorkers()
+	for _, entry := range workers {
+		assigned, noJob, err := s.dispatchToWorker(ctx, entry.workerID, entry.worker)
 		if err != nil {
 			return err
 		}
-		if job.JobID == "" {
+		if noJob {
 			return nil
 		}
-		select {
-		case worker.commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunAssigned{RunAssigned: mapJob(job)}}:
-		case <-ctx.Done():
-			return ctx.Err()
+		if !assigned {
+			continue
 		}
 	}
 	return nil
 }
 
-func (s *Server) CancelRun(ctx context.Context, runID string, reason string) {
-	command := &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunCancelled{RunCancelled: &turingv1.RuntimeRunCancelled{RunId: runID, Reason: reason}}}
+type workerSnapshot struct {
+	workerID string
+	worker   *worker
+}
+
+func (s *Server) snapshotWorkers() []workerSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, worker := range s.workers {
-		select {
-		case worker.commands <- command:
-		default:
-		}
+	workers := make([]workerSnapshot, 0, len(s.workers))
+	for workerID, worker := range s.workers {
+		workers = append(workers, workerSnapshot{workerID: workerID, worker: worker})
 	}
+	return workers
+}
+
+func (s *Server) dispatchToWorker(ctx context.Context, workerID string, worker *worker) (assigned bool, noJob bool, err error) {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+	if worker.closed {
+		return false, false, nil
+	}
+	job, err := s.repo.ClaimNextJob(ctx, "general_assistant", workerID)
+	if err != nil {
+		return false, false, err
+	}
+	if job.JobID == "" {
+		return false, true, nil
+	}
+	select {
+	case worker.commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunAssigned{RunAssigned: mapJob(job)}}:
+		return true, false, nil
+	case <-ctx.Done():
+		return false, false, ctx.Err()
+	}
+}
+
+func (s *Server) CancelRun(ctx context.Context, runID string, reason string) {
+	command := &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunCancelled{RunCancelled: &turingv1.RuntimeRunCancelled{RunId: runID, Reason: reason}}}
+	for _, entry := range s.snapshotWorkers() {
+		entry.worker.trySend(command)
+	}
+}
+
+func (w *worker) trySend(command *turingv1.RuntimeCommand) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
+	select {
+	case w.commands <- command:
+	default:
+	}
+}
+
+func (w *worker) close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
+	w.closed = true
+	close(w.commands)
 }
 
 func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate) error {

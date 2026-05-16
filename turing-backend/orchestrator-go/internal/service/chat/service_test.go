@@ -25,6 +25,7 @@ import (
 
 type harness struct {
 	repo       *repository.Repository
+	database   *db.DB
 	bus        *events.Bus
 	runtime    *runtimesvc.Server
 	chatClient turingv1.ChatServiceClient
@@ -61,7 +62,7 @@ func newHarness(t *testing.T) *harness {
 		grpcServer.Stop()
 		_ = conn.Close()
 	})
-	return &harness{repo: repo, bus: bus, runtime: runtimeServer, chatClient: turingv1.NewChatServiceClient(conn), conn: conn, ctx: ctx}
+	return &harness{repo: repo, database: database, bus: bus, runtime: runtimeServer, chatClient: turingv1.NewChatServiceClient(conn), conn: conn, ctx: ctx}
 }
 
 func openChatTestDB(t *testing.T) *db.DB {
@@ -152,6 +153,59 @@ func TestSendMessageAssignsJobToAlreadyConnectedWorker(t *testing.T) {
 	}).GetRunAssigned()
 	if assigned.UserText != "hello connected worker" {
 		t.Fatalf("assigned job = %+v", assigned)
+	}
+}
+
+func TestSendMessageCancelsRunWhenDispatchFails(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	ctx, cancel := context.WithTimeout(h.clientContext(), 2*time.Second)
+	defer cancel()
+	runtimeClient := turingv1.NewRuntimeServiceClient(h.conn)
+	workerStream, err := runtimeClient.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerStream.CloseSend() }()
+	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-dispatch-fails", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvRuntimeCommand(t, workerStream, func(cmd *turingv1.RuntimeCommand) bool {
+		return cmd.GetWorkerAccepted() != nil
+	})
+	if _, err := h.database.ExecContext(ctx, `
+		CREATE TRIGGER fail_job_claim
+		BEFORE UPDATE OF status ON jobs
+		WHEN NEW.status = 'in_progress'
+		BEGIN
+			SELECT RAISE(ABORT, 'claim failed');
+		END;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	chatStream, err := h.chatClient.SendMessage(ctx, &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "dispatch failure",
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+		Model:         "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = chatStream.Recv()
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("Recv after dispatch failure = %v, want Internal", err)
+	}
+	run, err := h.repo.GetRun(context.Background(), queued.GetRunQueued().RunId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "cancelled" {
+		t.Fatalf("run status = %q, want cancelled", run.Status)
 	}
 }
 
