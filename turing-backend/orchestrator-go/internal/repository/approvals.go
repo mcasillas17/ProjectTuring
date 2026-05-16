@@ -117,7 +117,7 @@ func (r *Repository) DenyApproval(ctx context.Context, approvalID string, decide
 	if err := expectOneRow(result, "approval is not pending"); err != nil {
 		return ApprovalRecord{}, err
 	}
-	result, err = tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'failed', error_code = 'approval_denied', error_message = 'User denied approval', finished_at = ? WHERE id = (SELECT run_id FROM approvals WHERE id = ?)`, decidedAt, approvalID)
+	result, err = tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'failed', error_code = 'approval_denied', error_message = 'User denied approval', finished_at = ? WHERE id = (SELECT run_id FROM approvals WHERE id = ?) AND status = 'waiting_approval'`, decidedAt, approvalID)
 	if err != nil {
 		return ApprovalRecord{}, err
 	}

@@ -238,3 +238,43 @@ func TestApprovalFailsWithoutMatchingToolCall(t *testing.T) {
 		t.Fatalf("approval count = %d, want 0", approvalCount)
 	}
 }
+
+func TestDenyApprovalDoesNotMutateNonWaitingRun(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Deny invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "needs approval", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := repo.CreateApproval(ctx, enqueued.RunID, "", "general_assistant", "write_file", `{}`, "args_hash_1", "2099-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `UPDATE agent_runs SET status = 'completed' WHERE id = ?`, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.DenyApproval(ctx, approval.ApprovalID, "2026-05-15T00:00:00Z"); err == nil {
+		t.Fatal("expected deny approval to fail for completed run")
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "completed" {
+		t.Fatalf("run status = %q, want completed", run.Status)
+	}
+	var approvalStatus string
+	if err := database.QueryRowContext(ctx, `SELECT status FROM approvals WHERE id = ?`, approval.ApprovalID).Scan(&approvalStatus); err != nil {
+		t.Fatal(err)
+	}
+	if approvalStatus != "pending" {
+		t.Fatalf("approval status = %q, want pending", approvalStatus)
+	}
+}
