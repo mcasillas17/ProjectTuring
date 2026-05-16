@@ -366,6 +366,38 @@ func TestDispatchPendingRespectsWorkerMaxConcurrentRuns(t *testing.T) {
 	})
 }
 
+func TestConnectWorkerHonorsMaxConcurrentAboveDefaultBuffer(t *testing.T) {
+	h := newHarness(t)
+	const runCount = 9
+	enqueued := make(map[string]repository.EnqueueUserMessageResult, runCount)
+	for i := 0; i < runCount; i++ {
+		run := h.enqueueRun(t, fmt.Sprintf("run %d", i))
+		enqueued[run.RunID] = run
+	}
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-large-capacity", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: runCount}}}); err != nil {
+		t.Fatal(err)
+	}
+	assigned := map[string]bool{}
+	for len(assigned) < runCount {
+		cmd := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+			return cmd.GetRunAssigned() != nil
+		})
+		runID := cmd.GetRunAssigned().RunId
+		if _, ok := enqueued[runID]; !ok {
+			t.Fatalf("unexpected run assigned: %+v", cmd.GetRunAssigned())
+		}
+		assigned[runID] = true
+	}
+}
+
 func TestWorkerDisconnectRequeuesAssignedJob(t *testing.T) {
 	h := newHarness(t)
 	enqueued := h.enqueueRun(t, "disconnect")

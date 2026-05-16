@@ -53,15 +53,15 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 	if ready == nil || ready.WorkerId == "" || ready.AgentId != turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT {
 		return status.Error(codes.InvalidArgument, "worker_ready is required")
 	}
-	commands := make(chan *turingv1.RuntimeCommand, 8)
+	maxConcurrent := int(ready.MaxConcurrentRuns)
+	if maxConcurrent <= 0 {
+		maxConcurrent = 1
+	}
+	commands := make(chan *turingv1.RuntimeCommand, maxConcurrent)
 	s.mu.Lock()
 	if _, ok := s.workers[ready.WorkerId]; ok {
 		s.mu.Unlock()
 		return status.Error(codes.AlreadyExists, "worker already connected")
-	}
-	maxConcurrent := int(ready.MaxConcurrentRuns)
-	if maxConcurrent <= 0 {
-		maxConcurrent = 1
 	}
 	connectedWorker := &worker{commands: commands, maxConcurrent: maxConcurrent, assignments: map[string]string{}}
 	s.workers[ready.WorkerId] = connectedWorker
@@ -199,6 +199,7 @@ func (s *Server) dispatchToWorker(ctx context.Context, workerID string, worker *
 		worker.assignments[job.RunID] = job.JobID
 		return true, false, nil
 	case <-ctx.Done():
+		s.requeueAssignments([]assignment{{jobID: job.JobID, runID: job.RunID}})
 		return false, false, ctx.Err()
 	}
 }
