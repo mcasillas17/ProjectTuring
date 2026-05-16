@@ -155,6 +155,35 @@ func TestCancelRunUpdatesRunAndJob(t *testing.T) {
 	}
 }
 
+func TestCancelRunFailsForTerminalRun(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Cancel terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "already done", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `UPDATE agent_runs SET status = 'completed' WHERE id = ?`, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CancelRun(ctx, enqueued.RunID, "client_cancelled"); err == nil {
+		t.Fatal("expected cancel run to fail for completed run")
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "completed" {
+		t.Fatalf("run status = %q, want completed", run.Status)
+	}
+}
+
 func TestApprovalLifecycleRecordsTokenAndUpdatesRun(t *testing.T) {
 	database := openTestDB(t)
 	repo := New(database)
