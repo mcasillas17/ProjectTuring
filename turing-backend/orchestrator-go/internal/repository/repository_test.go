@@ -183,6 +183,13 @@ func TestApprovalLifecycleRecordsTokenAndUpdatesRun(t *testing.T) {
 	if approved.Status != "approved" || approved.ApprovalToken != "approval_token_1" {
 		t.Fatalf("bad approval record: %+v", approved)
 	}
+	var toolCallStatus, toolCallApprovalID string
+	if err := database.QueryRowContext(ctx, `SELECT status, approval_id FROM tool_calls WHERE id = ?`, "tool_1").Scan(&toolCallStatus, &toolCallApprovalID); err != nil {
+		t.Fatalf("query approval tool call: %v", err)
+	}
+	if toolCallStatus != "approval_required" || toolCallApprovalID != approval.ApprovalID {
+		t.Fatalf("bad approval tool call: status=%q approval_id=%q", toolCallStatus, toolCallApprovalID)
+	}
 	run, err := repo.GetRun(ctx, enqueued.RunID)
 	if err != nil {
 		t.Fatal(err)
@@ -203,5 +210,31 @@ func TestApprovalLifecycleRecordsTokenAndUpdatesRun(t *testing.T) {
 	}
 	if consumed.Status != "consumed" {
 		t.Fatalf("approval status after consume = %q", consumed.Status)
+	}
+}
+
+func TestApprovalFailsWithoutMatchingToolCall(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Approval failure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "needs approval", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateApproval(ctx, enqueued.RunID, "missing_tool_call", "general_assistant", "write_file", `{}`, "args_hash_1", "2099-01-01T00:00:00Z"); err == nil {
+		t.Fatal("expected missing tool call error")
+	}
+	var approvalCount int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM approvals`).Scan(&approvalCount); err != nil {
+		t.Fatal(err)
+	}
+	if approvalCount != 0 {
+		t.Fatalf("approval count = %d, want 0", approvalCount)
 	}
 }

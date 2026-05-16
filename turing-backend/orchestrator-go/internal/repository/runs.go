@@ -1,9 +1,6 @@
 package repository
 
-import (
-	"context"
-	"errors"
-)
+import "context"
 
 type Run struct {
 	RunID   string
@@ -22,14 +19,14 @@ func (r *Repository) MarkRunRunning(ctx context.Context, runID string) error {
 	if err != nil {
 		return err
 	}
-	changed, err := result.RowsAffected()
+	if err := expectOneRow(result, "run is not queued"); err != nil {
+		return err
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE jobs SET status = 'in_progress', picked_up_at = ? WHERE run_id = ? AND status = 'pending'`, startedAt, runID)
 	if err != nil {
 		return err
 	}
-	if changed != 1 {
-		return errors.New("run is not queued")
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'in_progress', picked_up_at = ? WHERE run_id = ? AND status = 'pending'`, startedAt, runID); err != nil {
+	if err := expectOneRow(result, "pending job not found for run"); err != nil {
 		return err
 	}
 	return tx.Commit()

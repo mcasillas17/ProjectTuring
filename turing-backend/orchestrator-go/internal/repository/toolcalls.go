@@ -1,9 +1,6 @@
 package repository
 
-import (
-	"context"
-	"errors"
-)
+import "context"
 
 type ToolCallRecord struct {
 	ToolCallID string
@@ -45,12 +42,8 @@ func (r *Repository) RecordToolCallAfter(ctx context.Context, toolCallID string,
 	if err != nil {
 		return err
 	}
-	changed, err := result.RowsAffected()
-	if err != nil {
+	if err := expectOneRow(result, "tool call not found"); err != nil {
 		return err
-	}
-	if changed != 1 {
-		return errors.New("tool call not found")
 	}
 	return tx.Commit()
 }

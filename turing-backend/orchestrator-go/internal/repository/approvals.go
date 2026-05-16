@@ -47,11 +47,19 @@ func (r *Repository) CreateApproval(ctx context.Context, runID string, toolCallI
 		return ApprovalRecord{}, err
 	}
 	if toolCallID != "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE tool_calls SET approval_id = ?, status = 'approval_required' WHERE id = ? AND run_id = ?`, record.ApprovalID, toolCallID, runID); err != nil {
+		result, err := tx.ExecContext(ctx, `UPDATE tool_calls SET approval_id = ?, status = 'approval_required' WHERE id = ? AND run_id = ?`, record.ApprovalID, toolCallID, runID)
+		if err != nil {
+			return ApprovalRecord{}, err
+		}
+		if err := expectOneRow(result, "tool call not found"); err != nil {
 			return ApprovalRecord{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'waiting_approval' WHERE id = ? AND status IN ('queued','running','waiting_approval')`, runID); err != nil {
+	result, err := tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'waiting_approval' WHERE id = ? AND status IN ('queued','running','waiting_approval')`, runID)
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
+	if err := expectOneRow(result, "run cannot wait for approval"); err != nil {
 		return ApprovalRecord{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -73,14 +81,14 @@ func (r *Repository) ApproveApproval(ctx context.Context, approvalID string, app
 	if err != nil {
 		return ApprovalRecord{}, err
 	}
-	changed, err := result.RowsAffected()
+	if err := expectOneRow(result, "approval is not pending"); err != nil {
+		return ApprovalRecord{}, err
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'running' WHERE id = (SELECT run_id FROM approvals WHERE id = ?) AND status = 'waiting_approval'`, approvalID)
 	if err != nil {
 		return ApprovalRecord{}, err
 	}
-	if changed != 1 {
-		return ApprovalRecord{}, errors.New("approval is not pending")
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'running' WHERE id = (SELECT run_id FROM approvals WHERE id = ?) AND status = 'waiting_approval'`, approvalID); err != nil {
+	if err := expectOneRow(result, "run is not waiting for approval"); err != nil {
 		return ApprovalRecord{}, err
 	}
 	record, err := approvalByID(ctx, tx, approvalID)
@@ -106,14 +114,14 @@ func (r *Repository) DenyApproval(ctx context.Context, approvalID string, decide
 	if err != nil {
 		return ApprovalRecord{}, err
 	}
-	changed, err := result.RowsAffected()
+	if err := expectOneRow(result, "approval is not pending"); err != nil {
+		return ApprovalRecord{}, err
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'failed', error_code = 'approval_denied', error_message = 'User denied approval', finished_at = ? WHERE id = (SELECT run_id FROM approvals WHERE id = ?)`, decidedAt, approvalID)
 	if err != nil {
 		return ApprovalRecord{}, err
 	}
-	if changed != 1 {
-		return ApprovalRecord{}, errors.New("approval is not pending")
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'failed', error_code = 'approval_denied', error_message = 'User denied approval', finished_at = ? WHERE id = (SELECT run_id FROM approvals WHERE id = ?)`, decidedAt, approvalID); err != nil {
+	if err := expectOneRow(result, "run not found for approval"); err != nil {
 		return ApprovalRecord{}, err
 	}
 	record, err := approvalByID(ctx, tx, approvalID)
@@ -139,12 +147,8 @@ func (r *Repository) ConsumeApproval(ctx context.Context, approvalID string, con
 	if err != nil {
 		return ApprovalRecord{}, err
 	}
-	changed, err := result.RowsAffected()
-	if err != nil {
+	if err := expectOneRow(result, "approval is not approved"); err != nil {
 		return ApprovalRecord{}, err
-	}
-	if changed != 1 {
-		return ApprovalRecord{}, errors.New("approval is not approved")
 	}
 	record, err := approvalByID(ctx, tx, approvalID)
 	if err != nil {
@@ -175,4 +179,15 @@ func approvalByID(ctx context.Context, q approvalQuerier, approvalID string) (Ap
 		record.ApprovalToken = approvalToken.String
 	}
 	return record, nil
+}
+
+func expectOneRow(result sql.Result, message string) error {
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed != 1 {
+		return errors.New(message)
+	}
+	return nil
 }
