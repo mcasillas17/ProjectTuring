@@ -86,6 +86,10 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 				recvErr <- err
 				return
 			}
+			if err := connectedWorker.validateUpdate(update); err != nil {
+				recvErr <- err
+				return
+			}
 			if err := s.applyUpdate(ctx, update); err != nil {
 				recvErr <- err
 				return
@@ -128,6 +132,19 @@ func terminalRunID(update *turingv1.RuntimeUpdate) string {
 		return cancelled.RunId
 	}
 	return ""
+}
+
+func updateRunID(update *turingv1.RuntimeUpdate) string {
+	if update == nil {
+		return ""
+	}
+	if event := update.GetEvent(); event != nil {
+		return event.RunId
+	}
+	if beacon := update.GetToolBeacon(); beacon != nil {
+		return beacon.RunId
+	}
+	return terminalRunID(update)
 }
 
 func (s *Server) requeueIfAssignmentFailed(cmd *turingv1.RuntimeCommand, worker *worker) {
@@ -205,22 +222,46 @@ func (s *Server) dispatchToWorker(ctx context.Context, workerID string, worker *
 }
 
 func (s *Server) CancelRun(ctx context.Context, runID string, reason string) {
+	sendCtx, cancel := withDefaultTimeout(ctx, 5*time.Second)
+	defer cancel()
 	command := &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunCancelled{RunCancelled: &turingv1.RuntimeRunCancelled{RunId: runID, Reason: reason}}}
 	for _, entry := range s.snapshotWorkers() {
-		entry.worker.trySend(command)
+		_ = entry.worker.send(sendCtx, command)
 	}
 }
 
-func (w *worker) trySend(command *turingv1.RuntimeCommand) {
+func withDefaultTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (w *worker) send(ctx context.Context, command *turingv1.RuntimeCommand) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
-		return
+		return nil
 	}
 	select {
 	case w.commands <- command:
-	default:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
+}
+
+func (w *worker) validateUpdate(update *turingv1.RuntimeUpdate) error {
+	runID := updateRunID(update)
+	if runID == "" {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, ok := w.assignments[runID]; ok {
+		return nil
+	}
+	return status.Error(codes.PermissionDenied, "run is not assigned to worker")
 }
 
 func (w *worker) releaseRun(runID string) {
@@ -253,6 +294,9 @@ func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate
 	case *turingv1.RuntimeUpdate_Heartbeat:
 		return nil
 	case *turingv1.RuntimeUpdate_Event:
+		if isGenericTerminalEvent(value.Event) {
+			return status.Error(codes.InvalidArgument, "terminal run events must use runtime terminal updates")
+		}
 		event, err := s.repo.AppendRuntimeEvent(ctx, value.Event)
 		if err != nil {
 			return err
@@ -270,6 +314,20 @@ func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate
 		return nil
 	default:
 		return status.Error(codes.InvalidArgument, "unsupported runtime update")
+	}
+}
+
+func isGenericTerminalEvent(event *turingv1.TuringEvent) bool {
+	if event == nil {
+		return false
+	}
+	switch event.Type {
+	case turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_COMPLETED,
+		turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_FAILED,
+		turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_CANCELLED:
+		return true
+	default:
+		return false
 	}
 }
 

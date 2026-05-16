@@ -398,6 +398,112 @@ func TestConnectWorkerHonorsMaxConcurrentAboveDefaultBuffer(t *testing.T) {
 	}
 }
 
+func TestRuntimeRejectsGenericTerminalEvents(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "generic terminal")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_Event{Event: &turingv1.TuringEvent{
+		SessionId: enqueued.SessionID,
+		RunId:     enqueued.RunID,
+		TraceId:   enqueued.TraceID,
+		Type:      turingv1.TuringEventType_TURING_EVENT_TYPE_AGENT_RUN_COMPLETED,
+	}}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("generic terminal event error = %v, want InvalidArgument", err)
+	}
+	run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("run status = %q, want running", run.Status)
+	}
+}
+
+func TestWorkerCannotCompleteAnotherWorkersRun(t *testing.T) {
+	h := newHarness(t)
+	first := h.enqueueRun(t, "first")
+	second := h.enqueueRun(t, "second")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	workerOne, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerOne.CloseSend() }()
+	if err := workerOne.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-owner-1", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, workerOne, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == first.RunID
+	})
+	workerTwo, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerTwo.CloseSend() }()
+	if err := workerTwo.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-owner-2", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, workerTwo, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == second.RunID
+	})
+	if err := workerTwo.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:              first.RunID,
+		AssistantMessageId: first.AssistantMessageID,
+		Content:            "wrong worker",
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	run, err := h.repo.GetRun(context.Background(), first.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("first run status = %q, want running after wrong-worker completion", run.Status)
+	}
+}
+
+func TestCancelRunWaitsForCommandBufferSpace(t *testing.T) {
+	h := newHarness(t)
+	commands := make(chan *turingv1.RuntimeCommand, 1)
+	commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_WorkerAccepted{WorkerAccepted: &turingv1.RuntimeWorkerAccepted{WorkerId: "worker-buffered"}}}
+	h.service.mu.Lock()
+	h.service.workers["worker-buffered"] = &worker{commands: commands, maxConcurrent: 1, assignments: map[string]string{}}
+	h.service.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		h.service.CancelRun(ctx, "run_buffered", "client_cancelled")
+		close(done)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	<-commands
+	select {
+	case <-done:
+		t.Fatal("CancelRun returned before buffer space was available")
+	default:
+	}
+	select {
+	case cmd := <-commands:
+		cancel := cmd.GetRunCancelled()
+		if cancel == nil || cancel.RunId != "run_buffered" {
+			t.Fatalf("command = %+v, want run_cancelled", cmd)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for cancellation command")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("CancelRun did not return after cancellation delivery")
+	}
+}
+
 func TestWorkerDisconnectRequeuesAssignedJob(t *testing.T) {
 	h := newHarness(t)
 	enqueued := h.enqueueRun(t, "disconnect")
