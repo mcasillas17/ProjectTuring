@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -125,10 +126,26 @@ func truncate(value string, maxBytes int) string {
 	if len(value) <= maxBytes {
 		return value
 	}
-	if maxBytes <= 3 {
-		return value[:maxBytes]
+	if maxBytes <= 0 {
+		return ""
 	}
-	return value[:maxBytes-3] + "..."
+	if maxBytes <= 3 {
+		return validUTF8Prefix(value, maxBytes)
+	}
+	return validUTF8Prefix(value, maxBytes-3) + "..."
+}
+
+func validUTF8Prefix(value string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(value) <= maxBytes {
+		return value
+	}
+	for maxBytes > 0 && !utf8.RuneStart(value[maxBytes]) {
+		maxBytes--
+	}
+	return value[:maxBytes]
 }
 
 func canonical(value any) any {
