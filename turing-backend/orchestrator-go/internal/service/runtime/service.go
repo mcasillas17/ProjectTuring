@@ -131,24 +131,11 @@ func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.Run
 	if completed == nil || completed.RunId == "" {
 		return status.Error(codes.InvalidArgument, "run_completed is required")
 	}
-	run, err := s.repo.GetRun(ctx, completed.RunId)
-	if err != nil {
-		return err
-	}
-	if err := s.repo.CompleteRun(ctx, completed.RunId, completed.AssistantMessageId, completed.Content); err != nil {
-		return err
-	}
 	payloadJSON, err := encodePayload(map[string]any{"assistantMessageId": completed.AssistantMessageId})
 	if err != nil {
 		return err
 	}
-	event, err := s.repo.AppendEvent(ctx, repository.AppendEventInput{
-		SessionID:   run.SessionID,
-		RunID:       completed.RunId,
-		TraceID:     run.TraceID,
-		Type:        "agent.run.completed",
-		PayloadJSON: payloadJSON,
-	})
+	event, err := s.repo.CompleteRunWithEvent(ctx, completed.RunId, completed.AssistantMessageId, completed.Content, payloadJSON)
 	if err != nil {
 		return err
 	}
@@ -160,24 +147,11 @@ func (s *Server) handleRunFailed(ctx context.Context, failed *turingv1.RuntimeRu
 	if failed == nil || failed.RunId == "" {
 		return status.Error(codes.InvalidArgument, "run_failed is required")
 	}
-	run, err := s.repo.GetRun(ctx, failed.RunId)
-	if err != nil {
-		return err
-	}
-	if err := s.repo.FailRun(ctx, failed.RunId, failed.Code, failed.Message); err != nil {
-		return err
-	}
 	payloadJSON, err := encodePayload(map[string]any{"code": failed.Code, "message": failed.Message, "retryable": failed.Retryable})
 	if err != nil {
 		return err
 	}
-	event, err := s.repo.AppendEvent(ctx, repository.AppendEventInput{
-		SessionID:   run.SessionID,
-		RunID:       failed.RunId,
-		TraceID:     run.TraceID,
-		Type:        "agent.run.failed",
-		PayloadJSON: payloadJSON,
-	})
+	event, err := s.repo.FailRunWithEvent(ctx, failed.RunId, failed.Code, failed.Message, payloadJSON)
 	if err != nil {
 		return err
 	}

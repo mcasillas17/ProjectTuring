@@ -254,6 +254,76 @@ func TestSendMessageStreamsRuntimeRunCompleted(t *testing.T) {
 	}
 }
 
+func TestSendMessageWaitsForRunCompletedAfterMessageCompleted(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	ctx, cancel := context.WithTimeout(h.clientContext(), 2*time.Second)
+	defer cancel()
+	chatStream, err := h.chatClient.SendMessage(ctx, &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "complete after message",
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+		Model:         "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := queued.GetRunQueued().RunId
+	traceID := queued.GetRunQueued().TraceId
+
+	runtimeClient := turingv1.NewRuntimeServiceClient(h.conn)
+	workerStream, err := runtimeClient.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerStream.CloseSend() }()
+	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-chat-message-complete", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	assigned := recvRuntimeCommand(t, workerStream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == runID
+	}).GetRunAssigned()
+	messagePayload, err := structpb.NewStruct(map[string]any{"messageId": assigned.AssistantMessageId, "content": "done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_Event{Event: &turingv1.TuringEvent{
+		SessionId: sessionID,
+		RunId:     runID,
+		TraceId:   traceID,
+		Type:      turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_COMPLETED,
+		Payload:   messagePayload,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	messageCompleted, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if messageCompleted.GetMessageCompleted().GetContent() != "done" {
+		t.Fatalf("message_completed = %+v", messageCompleted)
+	}
+	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:              runID,
+		AssistantMessageId: assigned.AssistantMessageId,
+		Content:            "done",
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	runCompleted, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runCompleted.GetRunCompleted().GetRunId() != runID {
+		t.Fatalf("run_completed = %+v", runCompleted)
+	}
+}
+
 func TestSendMessageReplaysPersistedTerminalEventWithoutBusWake(t *testing.T) {
 	h := newHarness(t)
 	sessionID := h.createSession(t)

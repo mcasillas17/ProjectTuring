@@ -148,7 +148,7 @@ func (s *Server) streamAvailableEvents(ctx context.Context, sessionID string, ru
 
 func isTerminalEvent(eventType string) bool {
 	switch eventType {
-	case "message.completed", "agent.run.completed", "agent.run.failed", "agent.run.cancelled":
+	case "agent.run.completed", "agent.run.failed", "agent.run.cancelled":
 		return true
 	default:
 		return false

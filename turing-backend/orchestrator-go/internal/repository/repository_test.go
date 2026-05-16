@@ -285,6 +285,56 @@ func TestCompleteRunUpdatesRunJobAndAssistantMessage(t *testing.T) {
 	}
 }
 
+func TestCompleteRunWithEventRollsBackWhenEventAppendFails(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Complete run rollback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "complete me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkRunRunning(ctx, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		CREATE TRIGGER fail_completed_event
+		BEFORE INSERT ON events
+		WHEN NEW.type = 'agent.run.completed'
+		BEGIN
+			SELECT RAISE(ABORT, 'terminal event insert failed');
+		END;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = repo.CompleteRunWithEvent(ctx, enqueued.RunID, enqueued.AssistantMessageID, "done", `{"assistantMessageId":"`+enqueued.AssistantMessageID+`"}`)
+	if err == nil {
+		t.Fatal("CompleteRunWithEvent succeeded, want trigger failure")
+	}
+	run, err := repo.GetRun(ctx, enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("run status = %q, want running after rollback", run.Status)
+	}
+	var jobStatus, assistantContent string
+	if err := database.QueryRowContext(ctx, `SELECT status FROM jobs WHERE id = ?`, enqueued.JobID).Scan(&jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx, `SELECT content FROM messages WHERE id = ?`, enqueued.AssistantMessageID).Scan(&assistantContent); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "in_progress" || assistantContent != "" {
+		t.Fatalf("rollback state: job_status=%q assistant_content=%q", jobStatus, assistantContent)
+	}
+}
+
 func TestFailRunUpdatesRunAndJobError(t *testing.T) {
 	database := openTestDB(t)
 	repo := New(database)
