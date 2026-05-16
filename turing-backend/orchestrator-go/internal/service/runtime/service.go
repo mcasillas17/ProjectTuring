@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sync"
+	"time"
 
 	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
@@ -88,10 +89,21 @@ func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServe
 			return err
 		case cmd := <-commands:
 			if err := stream.Send(cmd); err != nil {
+				s.requeueIfAssignmentFailed(cmd)
 				return err
 			}
 		}
 	}
+}
+
+func (s *Server) requeueIfAssignmentFailed(cmd *turingv1.RuntimeCommand) {
+	assigned := cmd.GetRunAssigned()
+	if assigned == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.repo.RequeueClaimedJob(ctx, assigned.JobId, assigned.RunId)
 }
 
 func (s *Server) DispatchPending(ctx context.Context) error {

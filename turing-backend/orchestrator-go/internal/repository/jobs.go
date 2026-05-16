@@ -173,3 +173,26 @@ func (r *Repository) ClaimNextJob(ctx context.Context, agentID string, leaseOwne
 	}
 	return job, nil
 }
+
+func (r *Repository) RequeueClaimedJob(ctx context.Context, jobID string, runID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL, picked_up_at = NULL WHERE id = ? AND run_id = ? AND status = 'in_progress'`, jobID, runID)
+	if err != nil {
+		return err
+	}
+	if err := expectOneRow(result, "claimed job not found for requeue"); err != nil {
+		return err
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'queued', started_at = NULL, worker_id = NULL WHERE id = ? AND status = 'running'`, runID)
+	if err != nil {
+		return err
+	}
+	if err := expectOneRow(result, "running run not found for requeue"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

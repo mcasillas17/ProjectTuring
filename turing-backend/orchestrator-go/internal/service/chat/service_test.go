@@ -209,6 +209,42 @@ func TestSendMessageCancelsRunWhenDispatchFails(t *testing.T) {
 	}
 }
 
+func TestSendMessageMapsEnqueueDatabaseErrorToInternal(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	if err := h.database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := h.chatClient.SendMessage(h.clientContext(), &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "db closed",
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+		Model:         "llama3.2",
+	})
+	if err == nil {
+		_, err = stream.Recv()
+	}
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("SendMessage error = %v, want Internal", err)
+	}
+}
+
+func TestSendMessageMissingSessionReturnsNotFound(t *testing.T) {
+	h := newHarness(t)
+	stream, err := h.chatClient.SendMessage(h.clientContext(), &turingv1.SendMessageRequest{
+		SessionId:     "sess_missing",
+		Content:       "missing",
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+		Model:         "llama3.2",
+	})
+	if err == nil {
+		_, err = stream.Recv()
+	}
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("SendMessage error = %v, want NotFound", err)
+	}
+}
+
 func TestSendMessageCancellationCancelsRun(t *testing.T) {
 	h := newHarness(t)
 	sessionID := h.createSession(t)
@@ -255,6 +291,81 @@ func TestSendMessageCancellationCancelsRun(t *testing.T) {
 		}
 	}
 	t.Fatalf("agent.run.cancelled event not replayed: %+v", replayed)
+}
+
+func TestSendMessageDoesNotBroadcastCancellationWhenPersistenceFails(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	chatCtx, cancelChat := context.WithCancel(h.clientContext())
+	workerCtx, cancelWorker := context.WithTimeout(h.clientContext(), 2*time.Second)
+	defer cancelWorker()
+	runtimeClient := turingv1.NewRuntimeServiceClient(h.conn)
+	workerStream, err := runtimeClient.ConnectWorker(workerCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerStream.CloseSend() }()
+	if err := workerStream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-cancel-persist-fails", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvRuntimeCommand(t, workerStream, func(cmd *turingv1.RuntimeCommand) bool {
+		return cmd.GetWorkerAccepted() != nil
+	})
+	chatStream, err := h.chatClient.SendMessage(chatCtx, &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "cancel persistence fails",
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+		Model:         "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := queued.GetRunQueued().RunId
+	recvRuntimeCommand(t, workerStream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == runID
+	})
+	if _, err := h.database.ExecContext(context.Background(), `
+		CREATE TRIGGER fail_chat_cancel_event
+		BEFORE INSERT ON events
+		WHEN NEW.type = 'agent.run.cancelled'
+		BEGIN
+			SELECT RAISE(ABORT, 'cancel event insert failed');
+		END;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	cancelChat()
+	_, err = chatStream.Recv()
+	if status.Code(err) != codes.Canceled && err != io.EOF {
+		t.Fatalf("Recv after cancel = %v", err)
+	}
+
+	received := make(chan struct {
+		cmd *turingv1.RuntimeCommand
+		err error
+	}, 1)
+	go func() {
+		cmd, err := workerStream.Recv()
+		received <- struct {
+			cmd *turingv1.RuntimeCommand
+			err error
+		}{cmd: cmd, err: err}
+	}()
+	select {
+	case result := <-received:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if cancel := result.cmd.GetRunCancelled(); cancel != nil && cancel.RunId == runID {
+			t.Fatalf("received runtime cancellation despite persistence failure: %+v", cancel)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 func TestSendMessageStreamsRuntimeEvents(t *testing.T) {

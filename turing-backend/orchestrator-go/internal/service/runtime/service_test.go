@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -24,10 +25,11 @@ import (
 )
 
 type harness struct {
-	repo    *repository.Repository
-	bus     *events.Bus
-	service *Server
-	conn    *grpc.ClientConn
+	repo     *repository.Repository
+	database *db.DB
+	bus      *events.Bus
+	service  *Server
+	conn     *grpc.ClientConn
 }
 
 func newHarness(t *testing.T) *harness {
@@ -55,7 +57,7 @@ func newHarness(t *testing.T) *harness {
 		grpcServer.Stop()
 		_ = conn.Close()
 	})
-	return &harness{repo: repo, bus: bus, service: service, conn: conn}
+	return &harness{repo: repo, database: database, bus: bus, service: service, conn: conn}
 }
 
 func openRuntimeTestDB(t *testing.T) *db.DB {
@@ -246,6 +248,80 @@ func TestDuplicateWorkerIDIsRejected(t *testing.T) {
 		t.Fatalf("duplicate worker error = %v, want AlreadyExists", err)
 	}
 }
+
+func TestConnectWorkerRequeuesJobWhenAssignmentSendFails(t *testing.T) {
+	h := newHarness(t)
+	session, err := h.repo.CreateSession(context.Background(), "Runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := h.repo.EnqueueUserMessage(context.Background(), repository.EnqueueUserMessageInput{
+		SessionID:     session.SessionID,
+		Content:       "send failure",
+		AgentID:       "general_assistant",
+		ModelProvider: "ollama",
+		Model:         "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err = h.service.ConnectWorker(&failingAssignmentStream{
+		ctx: ctx,
+		ready: &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{
+			WorkerId:          "worker-send-fails",
+			AgentId:           turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+			MaxConcurrentRuns: 1,
+		}}},
+	})
+	if err == nil {
+		t.Fatal("ConnectWorker succeeded, want assignment send failure")
+	}
+	run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "queued" {
+		t.Fatalf("run status = %q, want queued after send failure", run.Status)
+	}
+	var jobStatus string
+	var leaseOwner sql.NullString
+	if err := h.database.QueryRowContext(context.Background(), `SELECT status, lease_owner FROM jobs WHERE id = ?`, enqueued.JobID).Scan(&jobStatus, &leaseOwner); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "pending" || leaseOwner.Valid {
+		t.Fatalf("job after send failure: status=%q lease_owner=%q", jobStatus, leaseOwner.String)
+	}
+}
+
+type failingAssignmentStream struct {
+	grpc.ServerStream
+	ctx       context.Context
+	ready     *turingv1.RuntimeUpdate
+	readySent bool
+}
+
+func (s *failingAssignmentStream) Send(cmd *turingv1.RuntimeCommand) error {
+	if cmd.GetWorkerAccepted() != nil {
+		return nil
+	}
+	if cmd.GetRunAssigned() != nil {
+		return errors.New("assignment send failed")
+	}
+	return nil
+}
+
+func (s *failingAssignmentStream) Recv() (*turingv1.RuntimeUpdate, error) {
+	if !s.readySent {
+		s.readySent = true
+		return s.ready, nil
+	}
+	<-s.ctx.Done()
+	return nil, s.ctx.Err()
+}
+
+func (s *failingAssignmentStream) Context() context.Context { return s.ctx }
 
 func TestRunCompletedPublishesTerminalEvent(t *testing.T) {
 	h := newHarness(t)

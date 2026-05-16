@@ -2,7 +2,9 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -52,6 +54,9 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 	if model == "" && modelProvider == "openai_compatible" {
 		model = s.openAIModel
 	}
+	if _, err := s.repo.GetSession(ctx, req.SessionId); err != nil {
+		return mapSessionError(ctx, err)
+	}
 	ch, unsubscribe := s.bus.Subscribe(req.SessionId)
 	defer unsubscribe()
 	enqueued, err := s.repo.EnqueueUserMessage(ctx, repository.EnqueueUserMessageInput{
@@ -62,7 +67,7 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 		Model:         model,
 	})
 	if err != nil {
-		return status.Error(codes.NotFound, "session not found")
+		return mapEnqueueError(ctx, err)
 	}
 	queuedEvent := enqueued.QueuedEvent
 	s.bus.Publish(busEventFromRepository(queuedEvent))
@@ -164,12 +169,31 @@ func isTerminalEvent(eventType string) bool {
 	}
 }
 
+func mapSessionError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return status.Error(codes.Canceled, "client cancelled stream")
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return status.Error(codes.NotFound, "session not found")
+	}
+	return status.Error(codes.Internal, "get session failed")
+}
+
+func mapEnqueueError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return status.Error(codes.Canceled, "client cancelled stream")
+	}
+	return status.Error(codes.Internal, "enqueue user message failed")
+}
+
 func (s *Server) cancelRun(runID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if event, err := s.repo.CancelRunWithEvent(ctx, runID, "client_cancelled", `{"reason":"client_cancelled"}`); err == nil {
-		s.bus.Publish(busEventFromRepository(event))
+	event, err := s.repo.CancelRunWithEvent(ctx, runID, "client_cancelled", `{"reason":"client_cancelled"}`)
+	if err != nil {
+		return
 	}
+	s.bus.Publish(busEventFromRepository(event))
 	if s.runtime != nil {
 		s.runtime.CancelRun(ctx, runID, "client_cancelled")
 	}
