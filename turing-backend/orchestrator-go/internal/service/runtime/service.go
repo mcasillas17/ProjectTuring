@@ -449,6 +449,9 @@ func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.Run
 	if completed == nil || completed.RunId == "" {
 		return status.Error(codes.InvalidArgument, "run_completed is required")
 	}
+	if completed.Content == "" {
+		return status.Error(codes.InvalidArgument, "content is required")
+	}
 	run, err := s.repo.GetRun(ctx, completed.RunId)
 	if err != nil {
 		return err
@@ -467,11 +470,13 @@ func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.Run
 	if err != nil {
 		return err
 	}
-	event, err := s.repo.CompleteRunWithEvent(ctx, completed.RunId, assistantMessageID, completed.Content, payloadJSON)
+	events, err := s.repo.CompleteRunWithEvent(ctx, completed.RunId, assistantMessageID, completed.Content, payloadJSON)
 	if err != nil {
 		return err
 	}
-	s.publishEvent(event)
+	for _, event := range events {
+		s.publishEvent(event)
+	}
 	return nil
 }
 
@@ -502,6 +507,20 @@ func encodePayload(payload map[string]any) (string, error) {
 func (s *Server) handleToolBeacon(ctx context.Context, beacon *turingv1.ToolCallBeacon) (*turingv1.ToolPolicyDecision, error) {
 	if beacon == nil || beacon.RunId == "" {
 		return nil, status.Error(codes.InvalidArgument, "tool_beacon is required")
+	}
+	if beacon.ToolCallId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tool_call_id is required")
+	}
+	switch beacon.Phase {
+	case turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE, turingv1.ToolCallPhase_TOOL_CALL_PHASE_AFTER:
+	default:
+		return nil, status.Error(codes.InvalidArgument, "tool_call phase is required")
+	}
+	if beacon.AgentId != turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT {
+		return nil, status.Error(codes.InvalidArgument, "agent_id is unsupported")
+	}
+	if beacon.ToolName == "" {
+		return nil, status.Error(codes.InvalidArgument, "tool_name is required")
 	}
 	run, err := s.repo.GetRun(ctx, beacon.RunId)
 	if err != nil {

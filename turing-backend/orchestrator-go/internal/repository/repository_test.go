@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/db"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func openTestDB(t *testing.T) *db.DB {
@@ -447,6 +449,92 @@ func TestCompleteRunWithEventRollsBackWhenEventAppendFails(t *testing.T) {
 	}
 	if jobStatus != "in_progress" || assistantContent != "" {
 		t.Fatalf("rollback state: job_status=%q assistant_content=%q", jobStatus, assistantContent)
+	}
+}
+
+func TestCompleteRunWithEventAppendsMessageCompletedBeforeRunCompleted(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Complete run events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "complete me", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkRunRunning(ctx, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	completedEvents, err := repo.CompleteRunWithEvent(ctx, enqueued.RunID, enqueued.AssistantMessageID, "done", `{"assistantMessageId":"`+enqueued.AssistantMessageID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(completedEvents) == 0 {
+		t.Fatal("CompleteRunWithEvent returned no events")
+	}
+	runCompleted := completedEvents[len(completedEvents)-1]
+	replayed, _, err := repo.ReplayEvents(ctx, session.SessionID, enqueued.QueuedEvent.Sequence, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var messageCompleted, terminal Event
+	for _, event := range replayed {
+		if event.Type == "message.completed" {
+			messageCompleted = event
+		}
+		if event.EventID == runCompleted.EventID {
+			terminal = event
+		}
+	}
+	if messageCompleted.EventID == "" || terminal.EventID == "" {
+		t.Fatalf("events missing message_completed=%+v terminal=%+v replayed=%+v", messageCompleted, terminal, replayed)
+	}
+	if messageCompleted.Sequence >= terminal.Sequence {
+		t.Fatalf("message.completed sequence=%d, want before run_completed sequence=%d", messageCompleted.Sequence, terminal.Sequence)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(messageCompleted.PayloadJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["messageId"] != enqueued.AssistantMessageID || payload["content"] != "done" {
+		t.Fatalf("message.completed payload = %+v", payload)
+	}
+}
+
+func TestAppendRuntimeEventRejectsNonActiveRun(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "Runtime event status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "cancel then event", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkRunRunning(ctx, enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CancelRunWithEvent(ctx, enqueued.RunID, "client_cancelled", `{"reason":"client_cancelled"}`); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := structpb.NewStruct(map[string]any{"delta": "late"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.AppendRuntimeEvent(ctx, &turingv1.TuringEvent{
+		RunId:   enqueued.RunID,
+		Type:    turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_DELTA,
+		Payload: payload,
+	}); err == nil {
+		t.Fatal("AppendRuntimeEvent succeeded for cancelled run, want error")
 	}
 }
 

@@ -546,6 +546,13 @@ func TestSendMessageStreamsRuntimeRunCompleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	messageCompleted, err := chatStream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if messageCompleted.GetMessageCompleted().GetContent() != "done" || messageCompleted.GetMessageCompleted().GetMessageId() != assigned.AssistantMessageId {
+		t.Fatalf("message_completed = %+v", messageCompleted)
+	}
 	completed, err := chatStream.Recv()
 	if err != nil {
 		t.Fatal(err)

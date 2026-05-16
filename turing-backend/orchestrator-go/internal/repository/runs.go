@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -72,44 +73,66 @@ func (r *Repository) CompleteRun(ctx context.Context, runID string, assistantMes
 	return tx.Commit()
 }
 
-func (r *Repository) CompleteRunWithEvent(ctx context.Context, runID string, assistantMessageID string, content string, payloadJSON string) (Event, error) {
+func (r *Repository) CompleteRunWithEvent(ctx context.Context, runID string, assistantMessageID string, content string, payloadJSON string) ([]Event, error) {
 	finishedAt := now()
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Event{}, err
+		return nil, err
 	}
 	defer tx.Rollback()
 	var sessionID, traceID string
 	if err := tx.QueryRowContext(ctx, `SELECT session_id, trace_id FROM agent_runs WHERE id = ?`, runID).Scan(&sessionID, &traceID); err != nil {
-		return Event{}, err
+		return nil, err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'completed', finished_at = ? WHERE id = ? AND status IN ('running','waiting_approval')`, finishedAt, runID)
 	if err != nil {
-		return Event{}, err
+		return nil, err
 	}
 	if err := expectOneRow(result, "run is not completable"); err != nil {
-		return Event{}, err
+		return nil, err
 	}
 	if assistantMessageID != "" {
 		result, err = tx.ExecContext(ctx, `UPDATE messages SET content = ? WHERE id = ? AND run_id = ? AND role = 'assistant'`, content, assistantMessageID, runID)
 		if err != nil {
-			return Event{}, err
+			return nil, err
 		}
 		if err := expectOneRow(result, "assistant message not found"); err != nil {
-			return Event{}, err
+			return nil, err
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'completed', finished_at = ? WHERE run_id = ? AND status IN ('pending','in_progress')`, finishedAt, runID); err != nil {
-		return Event{}, err
+		return nil, err
+	}
+	events := make([]Event, 0, 2)
+	if assistantMessageID != "" && content != "" {
+		var messageCompletedCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM events WHERE run_id = ? AND type = 'message.completed'`, runID).Scan(&messageCompletedCount); err != nil {
+			return nil, err
+		}
+		if messageCompletedCount == 0 {
+			messagePayload, err := json.Marshal(map[string]any{
+				"messageId": assistantMessageID,
+				"content":   content,
+			})
+			if err != nil {
+				return nil, err
+			}
+			messageEvent, err := appendRunEventTx(ctx, tx, sessionID, runID, traceID, "message.completed", string(messagePayload), finishedAt)
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, messageEvent)
+		}
 	}
 	event, err := appendRunEventTx(ctx, tx, sessionID, runID, traceID, "agent.run.completed", payloadJSON, finishedAt)
 	if err != nil {
-		return Event{}, err
+		return nil, err
 	}
+	events = append(events, event)
 	if err := tx.Commit(); err != nil {
-		return Event{}, err
+		return nil, err
 	}
-	return event, nil
+	return events, nil
 }
 
 func (r *Repository) FailRun(ctx context.Context, runID string, code string, message string) error {
@@ -248,6 +271,9 @@ func (r *Repository) AppendRuntimeEvent(ctx context.Context, event *turingv1.Tur
 	if event == nil {
 		return Event{}, errors.New("runtime event is required")
 	}
+	if event.RunId == "" {
+		return Event{}, errors.New("runtime event run_id is required")
+	}
 	payloadJSON := "{}"
 	if event.Payload != nil {
 		payload, err := protojson.Marshal(event.Payload)
@@ -256,13 +282,30 @@ func (r *Repository) AppendRuntimeEvent(ctx context.Context, event *turingv1.Tur
 		}
 		payloadJSON = string(payload)
 	}
-	return r.AppendEvent(ctx, AppendEventInput{
-		SessionID:   event.SessionId,
-		RunID:       event.RunId,
-		TraceID:     event.TraceId,
-		Type:        runtimeEventType(event.Type),
-		PayloadJSON: payloadJSON,
-	})
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Event{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE agent_runs SET status = status WHERE id = ? AND status IN ('running','waiting_approval')`, event.RunId)
+	if err != nil {
+		return Event{}, err
+	}
+	if err := expectOneRow(result, "run is not active"); err != nil {
+		return Event{}, err
+	}
+	var sessionID, traceID string
+	if err := tx.QueryRowContext(ctx, `SELECT session_id, trace_id FROM agent_runs WHERE id = ?`, event.RunId).Scan(&sessionID, &traceID); err != nil {
+		return Event{}, err
+	}
+	appended, err := appendRunEventTx(ctx, tx, sessionID, event.RunId, traceID, runtimeEventType(event.Type), payloadJSON, now())
+	if err != nil {
+		return Event{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Event{}, err
+	}
+	return appended, nil
 }
 
 func runtimeEventType(value turingv1.TuringEventType) string {

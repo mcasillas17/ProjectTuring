@@ -745,6 +745,25 @@ func TestRunCompletedRejectsMismatchedAssistantMessageID(t *testing.T) {
 	}
 }
 
+func TestRunCompletedRejectsEmptyContent(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "empty completion")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:              enqueued.RunID,
+		AssistantMessageId: enqueued.AssistantMessageID,
+	}}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("empty completion error = %v, want InvalidArgument", err)
+	}
+	run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("run status = %q, want running", run.Status)
+	}
+}
+
 func TestToolBeaconRequiresRunID(t *testing.T) {
 	h := newHarness(t)
 	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
@@ -754,6 +773,57 @@ func TestToolBeaconRequiresRunID(t *testing.T) {
 	}}})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("tool beacon error = %v, want InvalidArgument", err)
+	}
+}
+
+func TestToolBeaconRejectsInvalidFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*turingv1.ToolCallBeacon)
+	}{
+		{
+			name: "empty tool call id",
+			mutate: func(beacon *turingv1.ToolCallBeacon) {
+				beacon.ToolCallId = ""
+			},
+		},
+		{
+			name: "unspecified phase",
+			mutate: func(beacon *turingv1.ToolCallBeacon) {
+				beacon.Phase = turingv1.ToolCallPhase_TOOL_CALL_PHASE_UNSPECIFIED
+			},
+		},
+		{
+			name: "unsupported agent",
+			mutate: func(beacon *turingv1.ToolCallBeacon) {
+				beacon.AgentId = turingv1.AgentId(999)
+			},
+		},
+		{
+			name: "missing tool name",
+			mutate: func(beacon *turingv1.ToolCallBeacon) {
+				beacon.ToolName = ""
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			enqueued := h.createRunningRunResult(t, "invalid beacon")
+			beacon := &turingv1.ToolCallBeacon{
+				RunId:      enqueued.RunID,
+				TraceId:    enqueued.TraceID,
+				ToolCallId: "call_valid",
+				AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+				ToolName:   "system.time",
+				Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+			}
+			tt.mutate(beacon)
+			err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: beacon}})
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("tool beacon error = %v, want InvalidArgument", err)
+			}
+		})
 	}
 }
 
@@ -769,6 +839,7 @@ func TestToolBeaconRejectsTerminalRun(t *testing.T) {
 		ToolCallId: "call_terminal",
 		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
 		ToolName:   "system.time",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
 	}}})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("terminal tool beacon error = %v, want FailedPrecondition", err)
