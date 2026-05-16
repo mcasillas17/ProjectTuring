@@ -10,9 +10,11 @@ import (
 )
 
 type Run struct {
-	RunID   string
-	Status  string
-	TraceID string
+	RunID              string
+	SessionID          string
+	Status             string
+	TraceID            string
+	AssistantMessageID string
 }
 
 func (r *Repository) MarkRunRunning(ctx context.Context, runID string) error {
@@ -110,7 +112,7 @@ func (r *Repository) CancelRun(ctx context.Context, runID string, reason string)
 
 func (r *Repository) GetRun(ctx context.Context, runID string) (Run, error) {
 	var run Run
-	err := r.db.QueryRowContext(ctx, `SELECT id, status, trace_id FROM agent_runs WHERE id = ?`, runID).Scan(&run.RunID, &run.Status, &run.TraceID)
+	err := r.db.QueryRowContext(ctx, `SELECT id, session_id, status, trace_id, COALESCE(assistant_message_id, '') FROM agent_runs WHERE id = ?`, runID).Scan(&run.RunID, &run.SessionID, &run.Status, &run.TraceID, &run.AssistantMessageID)
 	return run, err
 }
 

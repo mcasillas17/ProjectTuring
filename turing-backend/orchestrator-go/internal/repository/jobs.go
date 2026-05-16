@@ -24,6 +24,7 @@ type EnqueueUserMessageResult struct {
 	JobID              string
 	TraceID            string
 	Status             string
+	QueuedEvent        Event
 }
 
 type Job struct {
@@ -79,10 +80,27 @@ func (r *Repository) EnqueueUserMessage(ctx context.Context, input EnqueueUserMe
 	if _, err := tx.ExecContext(ctx, `INSERT INTO jobs (id, run_id, agent_id, status, payload_json, created_at) VALUES (?, ?, ?, 'pending', ?, ?)`, jobID, runID, input.AgentID, string(payload), createdAt); err != nil {
 		return EnqueueUserMessageResult{}, err
 	}
+	var eventSequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE session_id = ?`, input.SessionID).Scan(&eventSequence); err != nil {
+		return EnqueueUserMessageResult{}, err
+	}
+	queuedEvent := Event{
+		EventID:     ids.New("evt"),
+		SessionID:   input.SessionID,
+		RunID:       sql.NullString{String: runID, Valid: true},
+		TraceID:     traceID,
+		Sequence:    eventSequence,
+		Type:        "agent.run.queued",
+		PayloadJSON: `{"status":"queued"}`,
+		CreatedAt:   createdAt,
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events (id, session_id, run_id, trace_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, queuedEvent.EventID, queuedEvent.SessionID, runID, queuedEvent.TraceID, queuedEvent.Sequence, queuedEvent.Type, queuedEvent.PayloadJSON, queuedEvent.CreatedAt); err != nil {
+		return EnqueueUserMessageResult{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return EnqueueUserMessageResult{}, err
 	}
-	return EnqueueUserMessageResult{SessionID: input.SessionID, UserMessageID: userMessageID, AssistantMessageID: assistantMessageID, RunID: runID, JobID: jobID, TraceID: traceID, Status: "queued"}, nil
+	return EnqueueUserMessageResult{SessionID: input.SessionID, UserMessageID: userMessageID, AssistantMessageID: assistantMessageID, RunID: runID, JobID: jobID, TraceID: traceID, Status: "queued", QueuedEvent: queuedEvent}, nil
 }
 
 func (r *Repository) ClaimNextJob(ctx context.Context, agentID string, leaseOwner string) (Job, error) {

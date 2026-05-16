@@ -64,26 +64,8 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 	if err != nil {
 		return status.Error(codes.NotFound, "session not found")
 	}
-	queuedEvent, err := s.repo.AppendEvent(ctx, repository.AppendEventInput{
-		SessionID:   req.SessionId,
-		RunID:       enqueued.RunID,
-		TraceID:     enqueued.TraceID,
-		Type:        "agent.run.queued",
-		PayloadJSON: `{"status":"queued"}`,
-	})
-	if err != nil {
-		return status.Error(codes.Internal, "append queued event failed")
-	}
-	s.bus.Publish(events.Event{
-		EventID:     queuedEvent.EventID,
-		SessionID:   queuedEvent.SessionID,
-		RunID:       enqueued.RunID,
-		TraceID:     queuedEvent.TraceID,
-		Sequence:    queuedEvent.Sequence,
-		Type:        queuedEvent.Type,
-		CreatedAt:   queuedEvent.CreatedAt,
-		PayloadJSON: queuedEvent.PayloadJSON,
-	})
+	queuedEvent := enqueued.QueuedEvent
+	s.bus.Publish(busEventFromRepository(queuedEvent))
 	if err := stream.Send(&turingv1.ChatStreamEvent{
 		SessionId: req.SessionId,
 		RunId:     enqueued.RunID,
@@ -98,30 +80,78 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 		s.cancelRunIfClientCancelled(ctx, enqueued.RunID)
 		return err
 	}
+	lastSent := queuedEvent.Sequence
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			s.cancelRun(enqueued.RunID)
 			return status.Error(codes.Canceled, "client cancelled stream")
-		case event, ok := <-ch:
+		case _, ok := <-ch:
 			if !ok {
 				return nil
 			}
-			if event.RunID != enqueued.RunID {
-				continue
-			}
-			if event.Sequence <= queuedEvent.Sequence {
-				continue
-			}
-			if err := stream.Send(mapChatEvent(event)); err != nil {
-				s.cancelRunIfClientCancelled(ctx, enqueued.RunID)
+			done, err := s.streamAvailableEvents(ctx, req.SessionId, enqueued.RunID, &lastSent, stream)
+			if err != nil {
 				return err
 			}
-			switch event.Type {
-			case "message.completed", "agent.run.completed", "agent.run.failed", "agent.run.cancelled":
+			if done {
+				return nil
+			}
+		case <-ticker.C:
+			done, err := s.streamAvailableEvents(ctx, req.SessionId, enqueued.RunID, &lastSent, stream)
+			if err != nil {
+				return err
+			}
+			if done {
 				return nil
 			}
 		}
+	}
+}
+
+func (s *Server) streamAvailableEvents(ctx context.Context, sessionID string, runID string, lastSent *int64, stream turingv1.ChatService_SendMessageServer) (bool, error) {
+	const replayLimit = 500
+	for {
+		replayed, _, err := s.repo.ReplayEvents(ctx, sessionID, *lastSent, replayLimit)
+		if err != nil {
+			if ctx.Err() != nil {
+				s.cancelRun(runID)
+				return false, status.Error(codes.Canceled, "client cancelled stream")
+			}
+			return false, status.Error(codes.Internal, "replay events failed")
+		}
+		if len(replayed) == 0 {
+			return false, nil
+		}
+		for _, event := range replayed {
+			if event.Sequence > *lastSent {
+				*lastSent = event.Sequence
+			}
+			if !event.RunID.Valid || event.RunID.String != runID {
+				continue
+			}
+			if err := stream.Send(mapChatEvent(busEventFromRepository(event))); err != nil {
+				s.cancelRunIfClientCancelled(ctx, runID)
+				return false, err
+			}
+			if isTerminalEvent(event.Type) {
+				return true, nil
+			}
+		}
+		if len(replayed) < replayLimit {
+			return false, nil
+		}
+	}
+}
+
+func isTerminalEvent(eventType string) bool {
+	switch eventType {
+	case "message.completed", "agent.run.completed", "agent.run.failed", "agent.run.cancelled":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -137,6 +167,23 @@ func (s *Server) cancelRunIfClientCancelled(ctx context.Context, runID string) {
 		return
 	}
 	s.cancelRun(runID)
+}
+
+func busEventFromRepository(event repository.Event) events.Event {
+	runID := ""
+	if event.RunID.Valid {
+		runID = event.RunID.String
+	}
+	return events.Event{
+		EventID:     event.EventID,
+		SessionID:   event.SessionID,
+		RunID:       runID,
+		TraceID:     event.TraceID,
+		Sequence:    event.Sequence,
+		Type:        event.Type,
+		CreatedAt:   event.CreatedAt,
+		PayloadJSON: event.PayloadJSON,
+	}
 }
 
 func mapChatEvent(event events.Event) *turingv1.ChatStreamEvent {

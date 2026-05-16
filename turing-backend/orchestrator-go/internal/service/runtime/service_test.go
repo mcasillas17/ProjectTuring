@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/auth"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/db"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/events"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -23,6 +25,7 @@ import (
 
 type harness struct {
 	repo    *repository.Repository
+	bus     *events.Bus
 	service *Server
 	conn    *grpc.ClientConn
 }
@@ -31,7 +34,8 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	database := openRuntimeTestDB(t)
 	repo := repository.New(database)
-	service := New(repo)
+	bus := events.NewBus(8)
+	service := New(repo, bus)
 	lis := bufconn.Listen(1024 * 1024)
 	grpcServer := grpc.NewServer(grpc.StreamInterceptor(auth.StreamInterceptor("internal-token")))
 	turingv1.RegisterRuntimeServiceServer(grpcServer, service)
@@ -51,7 +55,7 @@ func newHarness(t *testing.T) *harness {
 		grpcServer.Stop()
 		_ = conn.Close()
 	})
-	return &harness{repo: repo, service: service, conn: conn}
+	return &harness{repo: repo, bus: bus, service: service, conn: conn}
 }
 
 func openRuntimeTestDB(t *testing.T) *db.DB {
@@ -99,6 +103,11 @@ func (h *harness) createSessionAndRun(t *testing.T, content string) string {
 
 func (h *harness) createRunningRun(t *testing.T, content string) string {
 	t.Helper()
+	return h.createRunningRunResult(t, content).RunID
+}
+
+func (h *harness) createRunningRunResult(t *testing.T, content string) repository.EnqueueUserMessageResult {
+	t.Helper()
 	session, err := h.repo.CreateSession(context.Background(), "Runtime")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -116,7 +125,7 @@ func (h *harness) createRunningRun(t *testing.T, content string) string {
 	if err := h.repo.MarkRunRunning(context.Background(), enqueued.RunID); err != nil {
 		t.Fatalf("MarkRunRunning: %v", err)
 	}
-	return enqueued.RunID
+	return enqueued
 }
 
 func TestAssignsPendingJobToReadyWorker(t *testing.T) {
@@ -235,6 +244,83 @@ func TestDuplicateWorkerIDIsRejected(t *testing.T) {
 	_, err = second.Recv()
 	if status.Code(err) != codes.AlreadyExists {
 		t.Fatalf("duplicate worker error = %v, want AlreadyExists", err)
+	}
+}
+
+func TestRunCompletedPublishesTerminalEvent(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "complete me")
+	ch, unsubscribe := h.bus.Subscribe(enqueued.SessionID)
+	defer unsubscribe()
+
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:              enqueued.RunID,
+		AssistantMessageId: enqueued.AssistantMessageID,
+		Content:            "done",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	event := recvBusEvent(t, ch, func(event events.Event) bool {
+		return event.Type == "agent.run.completed" && event.RunID == enqueued.RunID
+	})
+	if event.TraceID != enqueued.TraceID {
+		t.Fatalf("terminal event trace_id = %q, want %q", event.TraceID, enqueued.TraceID)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["assistantMessageId"] != enqueued.AssistantMessageID {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestRunFailedPublishesTerminalEvent(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "fail me")
+	ch, unsubscribe := h.bus.Subscribe(enqueued.SessionID)
+	defer unsubscribe()
+
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunFailed{RunFailed: &turingv1.RuntimeRunFailed{
+		RunId:     enqueued.RunID,
+		Code:      "model_error",
+		Message:   "model failed",
+		Retryable: true,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	event := recvBusEvent(t, ch, func(event events.Event) bool {
+		return event.Type == "agent.run.failed" && event.RunID == enqueued.RunID
+	})
+	var payload struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		Retryable bool   `json:"retryable"`
+	}
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.Code != "model_error" || payload.Message != "model failed" || !payload.Retryable {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func recvBusEvent(t *testing.T, ch <-chan events.Event, match func(events.Event) bool) events.Event {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for bus event")
+		case event := <-ch:
+			if match(event) {
+				return event
+			}
+		}
 	}
 }
 

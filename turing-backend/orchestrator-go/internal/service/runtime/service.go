@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"sync"
 
 	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
@@ -116,14 +117,80 @@ func (s *Server) applyUpdate(ctx context.Context, update *turingv1.RuntimeUpdate
 		_, err := s.handleToolBeacon(ctx, value.ToolBeacon)
 		return err
 	case *turingv1.RuntimeUpdate_RunCompleted:
-		return s.repo.CompleteRun(ctx, value.RunCompleted.RunId, value.RunCompleted.AssistantMessageId, value.RunCompleted.Content)
+		return s.handleRunCompleted(ctx, value.RunCompleted)
 	case *turingv1.RuntimeUpdate_RunFailed:
-		return s.repo.FailRun(ctx, value.RunFailed.RunId, value.RunFailed.Code, value.RunFailed.Message)
+		return s.handleRunFailed(ctx, value.RunFailed)
 	case *turingv1.RuntimeUpdate_RunCancelledAck:
 		return nil
 	default:
 		return status.Error(codes.InvalidArgument, "unsupported runtime update")
 	}
+}
+
+func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.RuntimeRunCompleted) error {
+	if completed == nil || completed.RunId == "" {
+		return status.Error(codes.InvalidArgument, "run_completed is required")
+	}
+	run, err := s.repo.GetRun(ctx, completed.RunId)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.CompleteRun(ctx, completed.RunId, completed.AssistantMessageId, completed.Content); err != nil {
+		return err
+	}
+	payloadJSON, err := encodePayload(map[string]any{"assistantMessageId": completed.AssistantMessageId})
+	if err != nil {
+		return err
+	}
+	event, err := s.repo.AppendEvent(ctx, repository.AppendEventInput{
+		SessionID:   run.SessionID,
+		RunID:       completed.RunId,
+		TraceID:     run.TraceID,
+		Type:        "agent.run.completed",
+		PayloadJSON: payloadJSON,
+	})
+	if err != nil {
+		return err
+	}
+	s.publishEvent(event)
+	return nil
+}
+
+func (s *Server) handleRunFailed(ctx context.Context, failed *turingv1.RuntimeRunFailed) error {
+	if failed == nil || failed.RunId == "" {
+		return status.Error(codes.InvalidArgument, "run_failed is required")
+	}
+	run, err := s.repo.GetRun(ctx, failed.RunId)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.FailRun(ctx, failed.RunId, failed.Code, failed.Message); err != nil {
+		return err
+	}
+	payloadJSON, err := encodePayload(map[string]any{"code": failed.Code, "message": failed.Message, "retryable": failed.Retryable})
+	if err != nil {
+		return err
+	}
+	event, err := s.repo.AppendEvent(ctx, repository.AppendEventInput{
+		SessionID:   run.SessionID,
+		RunID:       failed.RunId,
+		TraceID:     run.TraceID,
+		Type:        "agent.run.failed",
+		PayloadJSON: payloadJSON,
+	})
+	if err != nil {
+		return err
+	}
+	s.publishEvent(event)
+	return nil
+}
+
+func encodePayload(payload map[string]any) (string, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func (s *Server) handleToolBeacon(ctx context.Context, beacon *turingv1.ToolCallBeacon) (*turingv1.ToolPolicyDecision, error) {

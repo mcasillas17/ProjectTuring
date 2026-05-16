@@ -86,6 +86,19 @@ func TestSessionMessageRunJobTransaction(t *testing.T) {
 	if payload["userMessageId"] != result.UserMessageID || payload["assistantMessageId"] != result.AssistantMessageID || payload["traceId"] != result.TraceID {
 		t.Fatalf("bad job payload: %+v", payload)
 	}
+	if result.QueuedEvent.Type != "agent.run.queued" || !result.QueuedEvent.RunID.Valid || result.QueuedEvent.RunID.String != result.RunID || result.QueuedEvent.TraceID != result.TraceID {
+		t.Fatalf("bad queued event result: %+v", result.QueuedEvent)
+	}
+	replayed, latest, err := repo.ReplayEvents(ctx, session.SessionID, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest != 1 || len(replayed) != 1 {
+		t.Fatalf("queued event replay latest=%d events=%+v", latest, replayed)
+	}
+	if replayed[0].EventID != result.QueuedEvent.EventID || replayed[0].Type != "agent.run.queued" {
+		t.Fatalf("bad queued replay event: %+v", replayed[0])
+	}
 }
 
 func TestEventsAreSequencedPerSession(t *testing.T) {
