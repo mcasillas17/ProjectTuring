@@ -233,12 +233,26 @@ func (s *Server) dispatchToWorker(ctx context.Context, workerID string, worker *
 }
 
 func (s *Server) CancelRun(ctx context.Context, runID string, reason string) {
+	if runID == "" {
+		return
+	}
+	owner := s.workerForRun(runID)
+	if owner == nil {
+		return
+	}
 	sendCtx, cancel := withDefaultTimeout(ctx, 5*time.Second)
 	defer cancel()
 	command := &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_RunCancelled{RunCancelled: &turingv1.RuntimeRunCancelled{RunId: runID, Reason: reason}}}
+	_ = owner.send(sendCtx, command)
+}
+
+func (s *Server) workerForRun(runID string) *worker {
 	for _, entry := range s.snapshotWorkers() {
-		_ = entry.worker.send(sendCtx, command)
+		if entry.worker.hasAssignment(runID) {
+			return entry.worker
+		}
 	}
+	return nil
 }
 
 func withDefaultTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
@@ -273,6 +287,13 @@ func (w *worker) validateUpdate(update *turingv1.RuntimeUpdate) error {
 		return nil
 	}
 	return status.Error(codes.PermissionDenied, "run is not assigned to worker")
+}
+
+func (w *worker) hasAssignment(runID string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, ok := w.assignments[runID]
+	return ok
 }
 
 func (w *worker) releaseRun(runID string) {
@@ -340,10 +361,17 @@ func (s *Server) normalizeRuntimeEvent(ctx context.Context, event *turingv1.Turi
 	if err != nil {
 		return nil, err
 	}
+	if !isActiveRunStatus(run.Status) {
+		return nil, status.Error(codes.FailedPrecondition, "run is not active")
+	}
 	out := *event
 	out.SessionId = run.SessionID
 	out.TraceId = run.TraceID
 	return &out, nil
+}
+
+func isActiveRunStatus(runStatus string) bool {
+	return runStatus == "running" || runStatus == "waiting_approval"
 }
 
 func isGenericTerminalEvent(event *turingv1.TuringEvent) bool {
@@ -378,11 +406,25 @@ func (s *Server) handleRunCompleted(ctx context.Context, completed *turingv1.Run
 	if completed == nil || completed.RunId == "" {
 		return status.Error(codes.InvalidArgument, "run_completed is required")
 	}
-	payloadJSON, err := encodePayload(map[string]any{"assistantMessageId": completed.AssistantMessageId})
+	run, err := s.repo.GetRun(ctx, completed.RunId)
 	if err != nil {
 		return err
 	}
-	event, err := s.repo.CompleteRunWithEvent(ctx, completed.RunId, completed.AssistantMessageId, completed.Content, payloadJSON)
+	assistantMessageID := completed.AssistantMessageId
+	if assistantMessageID == "" {
+		assistantMessageID = run.AssistantMessageID
+	}
+	if assistantMessageID == "" {
+		return status.Error(codes.FailedPrecondition, "assistant message is missing")
+	}
+	if run.AssistantMessageID != "" && assistantMessageID != run.AssistantMessageID {
+		return status.Error(codes.InvalidArgument, "assistant_message_id does not match run")
+	}
+	payloadJSON, err := encodePayload(map[string]any{"assistantMessageId": assistantMessageID})
+	if err != nil {
+		return err
+	}
+	event, err := s.repo.CompleteRunWithEvent(ctx, completed.RunId, assistantMessageID, completed.Content, payloadJSON)
 	if err != nil {
 		return err
 	}
@@ -415,8 +457,15 @@ func encodePayload(payload map[string]any) (string, error) {
 }
 
 func (s *Server) handleToolBeacon(ctx context.Context, beacon *turingv1.ToolCallBeacon) (*turingv1.ToolPolicyDecision, error) {
-	if beacon == nil {
+	if beacon == nil || beacon.RunId == "" {
 		return nil, status.Error(codes.InvalidArgument, "tool_beacon is required")
+	}
+	run, err := s.repo.GetRun(ctx, beacon.RunId)
+	if err != nil {
+		return nil, err
+	}
+	if !isActiveRunStatus(run.Status) {
+		return nil, status.Error(codes.FailedPrecondition, "run is not active")
 	}
 	return &turingv1.ToolPolicyDecision{Decision: turingv1.ToolPolicyDecision_DECISION_ALLOW, ToolCallId: beacon.ToolCallId}, nil
 }

@@ -193,7 +193,7 @@ func TestDispatchPendingPublishesRunStartedEvent(t *testing.T) {
 
 func TestCancelRunSendsRuntimeCommand(t *testing.T) {
 	h := newHarness(t)
-	runID := h.createRunningRun(t, "cancel me")
+	enqueued := h.enqueueRun(t, "cancel me")
 	client := h.runtimeClient(t)
 	stream, err := client.ConnectWorker(h.internalContext())
 	if err != nil {
@@ -203,14 +203,75 @@ func TestCancelRunSendsRuntimeCommand(t *testing.T) {
 	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-1", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
 		t.Fatal(err)
 	}
-	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
-		return cmd.GetWorkerAccepted() != nil
-	})
-	h.service.CancelRun(context.Background(), runID, "client_cancelled")
+	assigned := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == enqueued.RunID
+	}).GetRunAssigned()
+	h.service.CancelRun(context.Background(), assigned.RunId, "client_cancelled")
 	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
 		cancel := cmd.GetRunCancelled()
-		return cancel != nil && cancel.RunId == runID
+		return cancel != nil && cancel.RunId == assigned.RunId
 	})
+}
+
+func TestCancelRunOnlySendsToAssignedWorker(t *testing.T) {
+	h := newHarness(t)
+	first := h.enqueueRun(t, "cancel first")
+	second := h.enqueueRun(t, "keep second")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	workerOne, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerOne.CloseSend() }()
+	if err := workerOne.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-cancel-owner", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, workerOne, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == first.RunID
+	})
+	workerTwo, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workerTwo.CloseSend() }()
+	if err := workerTwo.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-cancel-bystander", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, workerTwo, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == second.RunID
+	})
+
+	h.service.CancelRun(context.Background(), first.RunID, "client_cancelled")
+	recvUntil(t, workerOne, func(cmd *turingv1.RuntimeCommand) bool {
+		cancel := cmd.GetRunCancelled()
+		return cancel != nil && cancel.RunId == first.RunID
+	})
+	received := make(chan struct {
+		cmd *turingv1.RuntimeCommand
+		err error
+	}, 1)
+	go func() {
+		cmd, err := workerTwo.Recv()
+		received <- struct {
+			cmd *turingv1.RuntimeCommand
+			err error
+		}{cmd: cmd, err: err}
+	}()
+	select {
+	case result := <-received:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if cancel := result.cmd.GetRunCancelled(); cancel != nil {
+			t.Fatalf("bystander worker received cancellation: %+v", cancel)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 func TestCancelRunDoesNotQueueForFutureWorker(t *testing.T) {
@@ -574,12 +635,128 @@ func TestRunCancelledAckRequiresPersistedCancellation(t *testing.T) {
 	}
 }
 
+func TestRuntimeRejectsEventsAfterCancelledRun(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "cancelled event")
+	if _, err := h.repo.CancelRunWithEvent(context.Background(), enqueued.RunID, "client_cancelled", `{"reason":"client_cancelled"}`); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := structpb.NewStruct(map[string]any{"delta": "late"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_Event{Event: &turingv1.TuringEvent{
+		RunId:   enqueued.RunID,
+		Type:    turingv1.TuringEventType_TURING_EVENT_TYPE_MESSAGE_DELTA,
+		Payload: payload,
+	}}})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("post-cancel event error = %v, want FailedPrecondition", err)
+	}
+	replayed, _, err := h.repo.ReplayEvents(context.Background(), enqueued.SessionID, enqueued.QueuedEvent.Sequence, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range replayed {
+		if event.Type == "message.delta" && event.RunID.Valid && event.RunID.String == enqueued.RunID {
+			t.Fatalf("late event was persisted after cancellation: %+v", event)
+		}
+	}
+}
+
+func TestRunCompletedUsesPersistedAssistantMessageID(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "complete without message id")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:   enqueued.RunID,
+		Content: "done",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var content string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT content FROM messages WHERE id = ?`, enqueued.AssistantMessageID).Scan(&content); err != nil {
+		t.Fatal(err)
+	}
+	if content != "done" {
+		t.Fatalf("assistant content = %q, want done", content)
+	}
+	replayed, _, err := h.repo.ReplayEvents(context.Background(), enqueued.SessionID, enqueued.QueuedEvent.Sequence, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range replayed {
+		if event.Type != "agent.run.completed" {
+			continue
+		}
+		var payload map[string]string
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["assistantMessageId"] != enqueued.AssistantMessageID {
+			t.Fatalf("completion payload = %+v", payload)
+		}
+		return
+	}
+	t.Fatal("agent.run.completed event not replayed")
+}
+
+func TestRunCompletedRejectsMismatchedAssistantMessageID(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "wrong assistant")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_RunCompleted{RunCompleted: &turingv1.RuntimeRunCompleted{
+		RunId:              enqueued.RunID,
+		AssistantMessageId: "msg_wrong",
+		Content:            "wrong",
+	}}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("mismatched assistant message error = %v, want InvalidArgument", err)
+	}
+	run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" {
+		t.Fatalf("run status = %q, want running", run.Status)
+	}
+}
+
+func TestToolBeaconRequiresRunID(t *testing.T) {
+	h := newHarness(t)
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		ToolCallId: "call_missing_run",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ToolName:   "system.time",
+	}}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("tool beacon error = %v, want InvalidArgument", err)
+	}
+}
+
+func TestToolBeaconRejectsTerminalRun(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "terminal beacon")
+	if _, err := h.repo.CancelRunWithEvent(context.Background(), enqueued.RunID, "client_cancelled", `{"reason":"client_cancelled"}`); err != nil {
+		t.Fatal(err)
+	}
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      enqueued.RunID,
+		TraceId:    enqueued.TraceID,
+		ToolCallId: "call_terminal",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ToolName:   "system.time",
+	}}})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("terminal tool beacon error = %v, want FailedPrecondition", err)
+	}
+}
+
 func TestCancelRunWaitsForCommandBufferSpace(t *testing.T) {
 	h := newHarness(t)
 	commands := make(chan *turingv1.RuntimeCommand, 1)
 	commands <- &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_WorkerAccepted{WorkerAccepted: &turingv1.RuntimeWorkerAccepted{WorkerId: "worker-buffered"}}}
 	h.service.mu.Lock()
-	h.service.workers["worker-buffered"] = &worker{commands: commands, maxConcurrent: 1, assignments: map[string]string{}}
+	h.service.workers["worker-buffered"] = &worker{commands: commands, maxConcurrent: 1, assignments: map[string]string{"run_buffered": "job_buffered"}}
 	h.service.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
