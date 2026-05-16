@@ -115,6 +115,39 @@ func TestSendMessageStreamsQueuedEvent(t *testing.T) {
 	}
 }
 
+func TestSendMessageRejectsUnknownModelProvider(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	stream, err := h.chatClient.SendMessage(h.clientContext(), &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "hello",
+		ModelProvider: turingv1.ModelProvider(999),
+	})
+	if err == nil {
+		_, err = stream.Recv()
+	}
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("SendMessage error = %v, want InvalidArgument", err)
+	}
+}
+
+func TestSendMessageRejectsUnsupportedAgent(t *testing.T) {
+	h := newHarness(t)
+	sessionID := h.createSession(t)
+	stream, err := h.chatClient.SendMessage(h.clientContext(), &turingv1.SendMessageRequest{
+		SessionId:     sessionID,
+		Content:       "hello",
+		AgentId:       turingv1.AgentId(999),
+		ModelProvider: turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA,
+	})
+	if err == nil {
+		_, err = stream.Recv()
+	}
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("SendMessage error = %v, want InvalidArgument", err)
+	}
+}
+
 func TestSendMessageAssignsJobToAlreadyConnectedWorker(t *testing.T) {
 	h := newHarness(t)
 	sessionID := h.createSession(t)

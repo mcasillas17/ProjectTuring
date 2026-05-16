@@ -43,9 +43,13 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 	if req.Content == "" {
 		return status.Error(codes.InvalidArgument, "content is required")
 	}
-	modelProvider := "ollama"
-	if req.ModelProvider == turingv1.ModelProvider_MODEL_PROVIDER_OPENAI_COMPATIBLE {
-		modelProvider = "openai_compatible"
+	agentID, err := requestAgentID(req.AgentId)
+	if err != nil {
+		return err
+	}
+	modelProvider, err := requestModelProvider(req.ModelProvider)
+	if err != nil {
+		return err
 	}
 	model := req.Model
 	if model == "" && modelProvider == "ollama" {
@@ -62,7 +66,7 @@ func (s *Server) SendMessage(req *turingv1.SendMessageRequest, stream turingv1.C
 	enqueued, err := s.repo.EnqueueUserMessage(ctx, repository.EnqueueUserMessageInput{
 		SessionID:     req.SessionId,
 		Content:       req.Content,
-		AgentID:       "general_assistant",
+		AgentID:       agentID,
 		ModelProvider: modelProvider,
 		Model:         model,
 	})
@@ -157,6 +161,26 @@ func (s *Server) streamAvailableEvents(ctx context.Context, sessionID string, ru
 		if len(replayed) < replayLimit {
 			return false, nil
 		}
+	}
+}
+
+func requestAgentID(agentID turingv1.AgentId) (string, error) {
+	switch agentID {
+	case turingv1.AgentId_AGENT_ID_UNSPECIFIED, turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT:
+		return "general_assistant", nil
+	default:
+		return "", status.Error(codes.InvalidArgument, "agent_id is unsupported")
+	}
+}
+
+func requestModelProvider(provider turingv1.ModelProvider) (string, error) {
+	switch provider {
+	case turingv1.ModelProvider_MODEL_PROVIDER_UNSPECIFIED, turingv1.ModelProvider_MODEL_PROVIDER_OLLAMA:
+		return "ollama", nil
+	case turingv1.ModelProvider_MODEL_PROVIDER_OPENAI_COMPATIBLE:
+		return "openai_compatible", nil
+	default:
+		return "", status.Error(codes.InvalidArgument, "model_provider is unsupported")
 	}
 }
 

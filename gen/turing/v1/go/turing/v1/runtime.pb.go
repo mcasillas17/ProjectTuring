@@ -793,6 +793,7 @@ type RuntimeCommand struct {
 	//	*RuntimeCommand_RunCancelled
 	//	*RuntimeCommand_ApprovalUpdated
 	//	*RuntimeCommand_ShutdownRequested
+	//	*RuntimeCommand_ToolPolicyDecision
 	Command       isRuntimeCommand_Command `protobuf_oneof:"command"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -880,6 +881,15 @@ func (x *RuntimeCommand) GetShutdownRequested() *RuntimeShutdownRequested {
 	return nil
 }
 
+func (x *RuntimeCommand) GetToolPolicyDecision() *ToolPolicyDecision {
+	if x != nil {
+		if x, ok := x.Command.(*RuntimeCommand_ToolPolicyDecision); ok {
+			return x.ToolPolicyDecision
+		}
+	}
+	return nil
+}
+
 type isRuntimeCommand_Command interface {
 	isRuntimeCommand_Command()
 }
@@ -904,6 +914,10 @@ type RuntimeCommand_ShutdownRequested struct {
 	ShutdownRequested *RuntimeShutdownRequested `protobuf:"bytes,5,opt,name=shutdown_requested,json=shutdownRequested,proto3,oneof"`
 }
 
+type RuntimeCommand_ToolPolicyDecision struct {
+	ToolPolicyDecision *ToolPolicyDecision `protobuf:"bytes,6,opt,name=tool_policy_decision,json=toolPolicyDecision,proto3,oneof"`
+}
+
 func (*RuntimeCommand_WorkerAccepted) isRuntimeCommand_Command() {}
 
 func (*RuntimeCommand_RunAssigned) isRuntimeCommand_Command() {}
@@ -913,6 +927,8 @@ func (*RuntimeCommand_RunCancelled) isRuntimeCommand_Command() {}
 func (*RuntimeCommand_ApprovalUpdated) isRuntimeCommand_Command() {}
 
 func (*RuntimeCommand_ShutdownRequested) isRuntimeCommand_Command() {}
+
+func (*RuntimeCommand_ToolPolicyDecision) isRuntimeCommand_Command() {}
 
 var File_turing_v1_runtime_proto protoreflect.FileDescriptor
 
@@ -972,13 +988,14 @@ const file_turing_v1_runtime_proto_rawDesc = "" +
 	"\vapproval_id\x18\x01 \x01(\tR\n" +
 	"approvalId\"2\n" +
 	"\x18RuntimeShutdownRequested\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x8f\x03\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xe2\x03\n" +
 	"\x0eRuntimeCommand\x12K\n" +
 	"\x0fworker_accepted\x18\x01 \x01(\v2 .turing.v1.RuntimeWorkerAcceptedH\x00R\x0eworkerAccepted\x128\n" +
 	"\frun_assigned\x18\x02 \x01(\v2\x13.turing.v1.AgentJobH\x00R\vrunAssigned\x12E\n" +
 	"\rrun_cancelled\x18\x03 \x01(\v2\x1e.turing.v1.RuntimeRunCancelledH\x00R\frunCancelled\x12N\n" +
 	"\x10approval_updated\x18\x04 \x01(\v2!.turing.v1.RuntimeApprovalUpdatedH\x00R\x0fapprovalUpdated\x12T\n" +
-	"\x12shutdown_requested\x18\x05 \x01(\v2#.turing.v1.RuntimeShutdownRequestedH\x00R\x11shutdownRequestedB\t\n" +
+	"\x12shutdown_requested\x18\x05 \x01(\v2#.turing.v1.RuntimeShutdownRequestedH\x00R\x11shutdownRequested\x12Q\n" +
+	"\x14tool_policy_decision\x18\x06 \x01(\v2\x1d.turing.v1.ToolPolicyDecisionH\x00R\x12toolPolicyDecisionB\t\n" +
 	"\acommand2Z\n" +
 	"\x0eRuntimeService\x12H\n" +
 	"\rConnectWorker\x12\x18.turing.v1.RuntimeUpdate\x1a\x19.turing.v1.RuntimeCommand(\x010\x01B>Z<github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1b\x06proto3"
@@ -1014,6 +1031,7 @@ var file_turing_v1_runtime_proto_goTypes = []any{
 	(*structpb.Struct)(nil),          // 14: google.protobuf.Struct
 	(*TuringEvent)(nil),              // 15: turing.v1.TuringEvent
 	(*ToolCallBeacon)(nil),           // 16: turing.v1.ToolCallBeacon
+	(*ToolPolicyDecision)(nil),       // 17: turing.v1.ToolPolicyDecision
 }
 var file_turing_v1_runtime_proto_depIdxs = []int32{
 	12, // 0: turing.v1.AgentJob.agent_id:type_name -> turing.v1.AgentId
@@ -1032,13 +1050,14 @@ var file_turing_v1_runtime_proto_depIdxs = []int32{
 	8,  // 13: turing.v1.RuntimeCommand.run_cancelled:type_name -> turing.v1.RuntimeRunCancelled
 	9,  // 14: turing.v1.RuntimeCommand.approval_updated:type_name -> turing.v1.RuntimeApprovalUpdated
 	10, // 15: turing.v1.RuntimeCommand.shutdown_requested:type_name -> turing.v1.RuntimeShutdownRequested
-	6,  // 16: turing.v1.RuntimeService.ConnectWorker:input_type -> turing.v1.RuntimeUpdate
-	11, // 17: turing.v1.RuntimeService.ConnectWorker:output_type -> turing.v1.RuntimeCommand
-	17, // [17:18] is the sub-list for method output_type
-	16, // [16:17] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	17, // 16: turing.v1.RuntimeCommand.tool_policy_decision:type_name -> turing.v1.ToolPolicyDecision
+	6,  // 17: turing.v1.RuntimeService.ConnectWorker:input_type -> turing.v1.RuntimeUpdate
+	11, // 18: turing.v1.RuntimeService.ConnectWorker:output_type -> turing.v1.RuntimeCommand
+	18, // [18:19] is the sub-list for method output_type
+	17, // [17:18] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_turing_v1_runtime_proto_init() }
@@ -1064,6 +1083,7 @@ func file_turing_v1_runtime_proto_init() {
 		(*RuntimeCommand_RunCancelled)(nil),
 		(*RuntimeCommand_ApprovalUpdated)(nil),
 		(*RuntimeCommand_ShutdownRequested)(nil),
+		(*RuntimeCommand_ToolPolicyDecision)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

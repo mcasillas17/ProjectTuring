@@ -571,6 +571,30 @@ func TestRuntimeRejectsEventsWithoutRunID(t *testing.T) {
 	}
 }
 
+func TestRuntimeRejectsUnspecifiedEventType(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "unspecified event")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_Event{Event: &turingv1.TuringEvent{
+		RunId: enqueued.RunID,
+		Type:  turingv1.TuringEventType_TURING_EVENT_TYPE_UNSPECIFIED,
+	}}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("unspecified event error = %v, want InvalidArgument", err)
+	}
+}
+
+func TestRuntimeRejectsUnknownEventType(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "unknown event")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_Event{Event: &turingv1.TuringEvent{
+		RunId: enqueued.RunID,
+		Type:  turingv1.TuringEventType(999),
+	}}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("unknown event error = %v, want InvalidArgument", err)
+	}
+}
+
 func TestWorkerCannotCompleteAnotherWorkersRun(t *testing.T) {
 	h := newHarness(t)
 	first := h.enqueueRun(t, "first")
@@ -748,6 +772,43 @@ func TestToolBeaconRejectsTerminalRun(t *testing.T) {
 	}}})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("terminal tool beacon error = %v, want FailedPrecondition", err)
+	}
+}
+
+func TestToolBeaconSendsPolicyDecisionCommand(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.enqueueRun(t, "tool decision")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-tool-decision", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == enqueued.RunID
+	})
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      enqueued.RunID,
+		TraceId:    enqueued.TraceID,
+		ToolCallId: "call_allow",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ToolName:   "system.time",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	decision := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		decision := cmd.GetToolPolicyDecision()
+		return decision != nil && decision.ToolCallId == "call_allow"
+	}).GetToolPolicyDecision()
+	if decision.Decision != turingv1.ToolPolicyDecision_DECISION_ALLOW {
+		t.Fatalf("tool policy decision = %+v", decision)
 	}
 }
 
