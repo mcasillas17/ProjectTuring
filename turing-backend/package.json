@@ -1,20 +1,9 @@
 {
   "name": "project-turing-backend",
   "private": true,
-  "workspaces": [
-    "shared-types",
-    "orchestrator",
-    "agent-runtime"
-  ],
   "scripts": {
-    "build": "npm run build -ws",
-    "test": "npm run test -ws",
-    "typecheck": "npm run typecheck -ws",
-    "lint": "npm run typecheck -ws"
-  },
-  "devDependencies": {
-    "@types/node": "^20.17.10",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "build": "go build ./...",
+    "test": "go test ./...",
+    "lint": "go test ./..."
   }
 }

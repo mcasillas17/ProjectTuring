@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/session.dart';
 import '../../networking/api_client.dart';
 import '../../networking/auth_storage.dart';
-import '../../networking/ws_client.dart';
+import '../../networking/event_source.dart';
 import '../chat/chat_screen.dart';
 import '../settings/settings_screen.dart';
 

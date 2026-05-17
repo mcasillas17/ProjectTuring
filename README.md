@@ -45,7 +45,6 @@ Important `.env` values:
 | `MCP_SYSTEM_TOKEN_GENERAL` / `MCP_FILES_TOKEN_GENERAL` | Per-server runtime-to-MCP bearer tokens |
 | `TURING_APPROVAL_JWT_SECRET` | HS256 signing secret shared by the orchestrator and Files MCP server |
 | `ORCHESTRATOR_GRPC_ADDR` | Internal runtime gRPC address, normally `turing-orchestrator:3001` |
-| `ORCHESTRATOR_INTERNAL_BASE_URL` | Internal MCP callback URL, normally `http://turing-orchestrator:3001/internal` |
 | `FILES_SANDBOX_ROOT` | Files MCP sandbox root inside the container, normally `/sandbox` |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | Local model endpoint and default model |
 

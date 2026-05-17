@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../../models/turing_event.dart';
 import '../../networking/api_client.dart';
-import '../../networking/ws_client.dart';
+import '../../networking/event_source.dart';
 import '../approvals/approval_card.dart';
 import 'model_provider_selector.dart';
 

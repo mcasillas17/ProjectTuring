@@ -9,7 +9,7 @@ import 'package:turing_flutter_app/models/session.dart';
 import 'package:turing_flutter_app/models/turing_event.dart';
 import 'package:turing_flutter_app/networking/auth_storage.dart';
 import 'package:turing_flutter_app/networking/grpc_client.dart';
-import 'package:turing_flutter_app/networking/ws_client.dart';
+import 'package:turing_flutter_app/networking/event_source.dart';
 
 void main() {
   testWidgets('Turing app renders settings when credentials are missing', (

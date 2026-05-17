@@ -9,7 +9,7 @@ import 'networking/api_client.dart';
 import 'networking/auth_storage.dart';
 import 'networking/grpc_client.dart';
 import 'networking/grpc_event_source.dart';
-import 'networking/ws_client.dart';
+import 'networking/event_source.dart';
 import 'ui/shell/responsive_shell.dart';
 
 typedef TuringApiFactory =

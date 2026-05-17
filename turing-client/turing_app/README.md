@@ -1,6 +1,6 @@
 # Project Turing Flutter Client
 
-This is the v1.0 Flutter client for Project Turing. It is a thin, protocol-driven UI for the local orchestrator: the backend owns sessions, messages, model routing, approvals, tool execution, persistence, and audit state.
+This is the v1.0 Flutter client for Project Turing. It is a thin, protocol-driven UI for the local Go gRPC orchestrator: the backend owns sessions, messages, model routing, approvals, tool execution, persistence, and audit state.
 
 The client preserves the existing polished `ResponsiveShell` experience. Backend-connected chat, sessions, and settings are integrated into that shell instead of replacing it with a plain debug root.
 
@@ -10,16 +10,14 @@ Implemented in the client:
 
 - Existing Project Turing app shell with desktop navigation rail and mobile drawer.
 - Backend URL and API key settings stored through secure client storage.
-- REST client for config, sessions, messages, event replay, and approval actions.
-- WebSocket client for streamed session events.
+- gRPC client for config, sessions, messages, event replay, streaming session events, and approval actions.
 - Chat tab wired to backend sessions and streamed message deltas.
 - Approval cards for `approval.requested` events, cleared by approval terminal events.
 - Model provider selector for `ollama` or `openai_compatible` per sent message.
 
-Provisional until the backend orchestrator is running:
+Provisional until the full local stack is running:
 
-- End-to-end chat responses require the orchestrator, agent runtime, model provider, and WebSocket event stream.
-- Session creation and message sending require the backend REST API.
+- End-to-end chat responses require the Go orchestrator, Go agent runtime, model provider, and event stream.
 - Approval cards require the backend/runtime to emit approval events.
 - Devices, Stats, and Integrations remain placeholders.
 
@@ -54,13 +52,11 @@ Enter:
 
 After saving, `TuringApp` reloads stored settings and opens the existing `ResponsiveShell`. The Settings tab remains available inside the shell so backend URL or API key can be updated later.
 
-The current client sends authenticated REST requests using:
+The current client sends authenticated gRPC metadata using:
 
 ```text
-Authorization: Bearer <api-key>
+authorization: Bearer <api-key>
 ```
-
-The WebSocket client passes the API key as a connection query token because some Flutter targets do not consistently support custom WebSocket headers.
 
 ## Shell Integration
 
@@ -76,36 +72,16 @@ This keeps theme logic, app colors, desktop rail behavior, mobile drawer behavio
 
 ## Chat And Sessions
 
-The Chat tab uses REST for commands and queries:
+The Chat tab uses the generated gRPC services for commands, queries, and streamed events:
 
-- `GET /api/sessions` to load session summaries.
-- `POST /api/sessions` to create a new chat.
-- `GET /api/sessions/:sessionId/messages` to load existing messages.
-- `POST /api/sessions/:sessionId/messages` to enqueue a user message and selected model provider.
-- `POST /api/approvals/:approvalId/approve` and `/deny` for approval cards.
+- `SessionService.GetConfig` for backend capabilities and model providers.
+- `SessionService.ListSessions` and `SessionService.CreateSession` for chat sessions.
+- `SessionService.ListMessages` to load persisted messages.
+- `ChatService.SendMessage` to enqueue a user message and selected model provider.
+- `EventService.ListEvents` and `EventService.SubscribeSessionEvents` for replay and live updates.
+- `ApprovalService.ApproveApproval` and `ApprovalService.DenyApproval` for approval cards.
 
-When a session opens, `ChatScreen` loads persisted messages over REST and subscribes to WebSocket events for that session. Incoming `message.delta` events update the active assistant message locally rather than making the client own model execution.
-
-## WebSocket Streaming
-
-`TuringWsClient` connects to:
-
-```text
-ws://<backend-host>:3000/ws?token=<api-key>
-```
-
-On connect, it sends:
-
-```json
-{"type":"hello","sessionId":"sess_...","lastSequence":42}
-```
-
-The client handles:
-
-- `hello_ack`: replays persisted events included by the backend.
-- `event`: parses the event envelope and applies it to the chat UI.
-- `resync_required`: raises a client exception indicating session state should be refetched over REST.
-- `error`: raises a client exception with the backend-provided message.
+When a session opens, `ChatScreen` loads persisted messages and subscribes to the session event stream. Incoming `message.delta` events update the active assistant message locally rather than making the client own model execution.
 
 Approval cards appear from `approval.requested` and are removed on `approval.approved`, `approval.denied`, `approval.expired`, or `approval.consumed`.
 
@@ -119,8 +95,10 @@ Approval cards appear from `approval.requested` and are removed on `approval.app
 - `lib/features/approvals/approval_card.dart`: approve/deny UI.
 - `lib/features/chat/model_provider_selector.dart`: provider selection control.
 - `lib/models/`: typed client models for sessions, messages, approvals, config, and streamed Turing events.
-- `lib/networking/api_client.dart`: REST protocol client and typed API interface.
-- `lib/networking/ws_client.dart`: WebSocket event stream client.
+- `lib/networking/api_client.dart`: typed API interface shared by widgets and gRPC implementation.
+- `lib/networking/grpc_client.dart`: gRPC protocol client.
+- `lib/networking/grpc_event_source.dart`: gRPC event stream client.
+- `lib/networking/event_source.dart`: event stream abstraction used by widgets and tests.
 - `lib/networking/auth_storage.dart`: secure storage abstraction.
 - `test/ui/responsive_shell_backend_test.dart`: shell regression test proving the polished shell still wraps backend chat.
 
@@ -131,6 +109,5 @@ The legacy prototype screen under `lib/ui/chat/chat_screen.dart` is not the back
 - Keep the Flutter client thin. Do not move orchestration, memory, routing, tool policy, approval decisions, or persistence into Flutter.
 - Preserve `ResponsiveShell` as the main authenticated app surface. Add new client views as tabs or shell-integrated screens rather than replacing the root.
 - Prefer the `TuringApi` and `TuringEventSource` interfaces in widgets so tests can use fakes without network access.
-- Treat WebSocket `resync_required` as a signal to refetch state over REST. Do not try to reconstruct missing state from partial event history.
 - Keep Devices, Stats, and Integrations visibly present but placeholder-only until their backend contracts are defined.
 - Avoid claiming full end-to-end chat readiness in UI or docs until the orchestrator/runtime pipeline is available and verified.

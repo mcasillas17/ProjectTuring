@@ -8,7 +8,7 @@ import '../generated/turing/v1/events.pbgrpc.dart' as eventgrpc;
 import '../models/grpc_mappers.dart';
 import '../models/turing_event.dart';
 import 'grpc_client.dart';
-import 'ws_client.dart';
+import 'event_source.dart';
 
 class TuringGrpcEventSource implements TuringEventSource {
   TuringGrpcEventSource({

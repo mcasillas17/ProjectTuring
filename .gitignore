@@ -16,7 +16,7 @@ docker-compose.override.yml
 .docker/
 
 # ==========================
-# 🐹 GO LANG (MCP SERVERS)
+# 🐹 GO
 # ==========================
 # Binaries
 # We named our compiled binary 'server' in the Dockerfiles
@@ -36,7 +36,7 @@ go.work
 vendor/
 
 # ==========================
-# 🧠 NODE / TYPESCRIPT (ORCHESTRATOR)
+# 🧠 NODE TOOLING
 # ==========================
 # Logs
 logs

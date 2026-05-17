@@ -5,7 +5,7 @@ import '../../features/settings/settings_screen.dart';
 import '../../logic/theme_logic.dart';
 import '../../networking/api_client.dart';
 import '../../networking/auth_storage.dart';
-import '../../networking/ws_client.dart';
+import '../../networking/event_source.dart';
 
 class ResponsiveShell extends StatefulWidget {
   const ResponsiveShell({
