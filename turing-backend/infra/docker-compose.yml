@@ -1,8 +1,8 @@
 services:
   turing-orchestrator:
     build:
-      context: ..
-      dockerfile: orchestrator/Dockerfile
+      context: ../..
+      dockerfile: turing-backend/orchestrator-go/Dockerfile
     env_file: ../.env
     ports:
       - "${ORCHESTRATOR_PUBLIC_PORT:-3000}:3000"
@@ -16,20 +16,9 @@ services:
 
   turing-agent-runtime-general:
     build:
-      context: ..
-      dockerfile: agent-runtime/Dockerfile
-    environment:
-      TURING_INTERNAL_TOKEN: ${TURING_INTERNAL_TOKEN}
-      MCP_SYSTEM_TOKEN_GENERAL: ${MCP_SYSTEM_TOKEN_GENERAL}
-      MCP_FILES_TOKEN_GENERAL: ${MCP_FILES_TOKEN_GENERAL}
-      ORCHESTRATOR_INTERNAL_BASE_URL: ${ORCHESTRATOR_INTERNAL_BASE_URL:-http://turing-orchestrator:3001/internal}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
-      OLLAMA_MODEL: ${OLLAMA_MODEL}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_MODEL: ${OPENAI_MODEL}
-      LOG_LEVEL: ${LOG_LEVEL}
-      LOG_PRETTY: ${LOG_PRETTY}
+      context: ../..
+      dockerfile: turing-backend/agent-runtime-go/Dockerfile
+    env_file: ../.env
     depends_on:
       - turing-orchestrator
       - turing-mcp-system
@@ -42,10 +31,7 @@ services:
 
   turing-mcp-system:
     build: ../mcp-system
-    environment:
-      MCP_SYSTEM_TOKEN_GENERAL: ${MCP_SYSTEM_TOKEN_GENERAL}
-      LOG_LEVEL: ${LOG_LEVEL}
-      LOG_PRETTY: ${LOG_PRETTY}
+    env_file: ../.env
     expose:
       - "7100"
     networks:
@@ -53,14 +39,7 @@ services:
 
   turing-mcp-files:
     build: ../mcp-files
-    environment:
-      MCP_FILES_TOKEN_GENERAL: ${MCP_FILES_TOKEN_GENERAL}
-      TURING_APPROVAL_JWT_SECRET: ${TURING_APPROVAL_JWT_SECRET}
-      TURING_INTERNAL_TOKEN: ${TURING_INTERNAL_TOKEN}
-      ORCHESTRATOR_INTERNAL_BASE_URL: ${ORCHESTRATOR_INTERNAL_BASE_URL:-http://turing-orchestrator:3001/internal}
-      FILES_SANDBOX_ROOT: ${FILES_SANDBOX_ROOT}
-      LOG_LEVEL: ${LOG_LEVEL}
-      LOG_PRETTY: ${LOG_PRETTY}
+    env_file: ../.env
     expose:
       - "7110"
     volumes:
