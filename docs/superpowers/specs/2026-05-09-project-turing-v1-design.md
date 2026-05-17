@@ -1,8 +1,8 @@
-# Project Turing v1.0 Design
+# TuringAgent v1.0 Design
 
 ## Problem
 
-Project Turing should become a local-first personal AI orchestration platform, not a single chatbot or a client-specific app. The v1.0 release needs a strong foundation that proves the core pipeline while avoiding premature complexity across native apps, distributed agents, semantic memory, external OAuth integrations, vision, voice, and IoT.
+TuringAgent should become a local-first personal AI orchestration platform, not a single chatbot or a client-specific app. The v1.0 release needs a strong foundation that proves the core pipeline while avoiding premature complexity across native apps, distributed agents, semantic memory, external OAuth integrations, vision, voice, and IoT.
 
 This design defines the v1.0 architecture around one backend brain, one first client face, and two initial tool hands. It supersedes earlier v1.0 notes that require Redis/BullMQ, separate agent containers, or a distributed agent runtime from day one.
 
@@ -31,7 +31,7 @@ This design defines the v1.0 architecture around one backend brain, one first cl
 
 ## Architecture
 
-Project Turing v1.0 uses a thin orchestrator spine:
+TuringAgent v1.0 uses a thin orchestrator spine:
 
 ```text
 Flutter client

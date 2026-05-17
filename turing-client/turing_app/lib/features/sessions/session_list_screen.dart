@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/session.dart';
 import '../../networking/api_client.dart';
 import '../../networking/auth_storage.dart';
-import '../../networking/ws_client.dart';
+import '../../networking/event_source.dart';
 import '../chat/chat_screen.dart';
 import '../settings/settings_screen.dart';
 
@@ -11,7 +11,7 @@ class SessionListScreen extends StatefulWidget {
   const SessionListScreen({
     super.key,
     required this.apiClient,
-    required this.wsClientFactory,
+    required this.eventSourceFactory,
     this.authStorage,
     this.onSettingsChanged,
     this.initialBackendUrl = 'http://localhost:3000',
@@ -20,7 +20,7 @@ class SessionListScreen extends StatefulWidget {
   });
 
   final TuringApi apiClient;
-  final TuringEventSource Function() wsClientFactory;
+  final TuringEventSource Function() eventSourceFactory;
   final ClientAuthStorage? authStorage;
   final VoidCallback? onSettingsChanged;
   final String initialBackendUrl;
@@ -68,7 +68,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
         builder: (_) => ChatScreen(
           sessionId: sessionId,
           apiClient: widget.apiClient,
-          wsClient: widget.wsClientFactory(),
+          eventSource: widget.eventSourceFactory(),
         ),
       ),
     );

@@ -7,7 +7,7 @@ import 'package:turing_flutter_app/models/session.dart';
 import 'package:turing_flutter_app/models/turing_event.dart';
 import 'package:turing_flutter_app/networking/api_client.dart';
 import 'package:turing_flutter_app/networking/auth_storage.dart';
-import 'package:turing_flutter_app/networking/ws_client.dart';
+import 'package:turing_flutter_app/networking/event_source.dart';
 import 'package:turing_flutter_app/ui/shell/responsive_shell.dart';
 
 void main() {
@@ -23,7 +23,7 @@ void main() {
         MaterialApp(
           home: ResponsiveShell(
             apiClient: _FakeApiClient(),
-            wsClientFactory: () => _FakeWsClient(),
+            eventSourceFactory: () => _FakeEventSource(),
             authStorage: _FakeAuthStorage(),
             initialBackendUrl: 'http://localhost:3000',
             initialApiKey: 'tk_test',
@@ -143,7 +143,7 @@ class _FakeAuthStorage implements ClientAuthStorage {
   }) async {}
 }
 
-class _FakeWsClient implements TuringEventSource {
+class _FakeEventSource implements TuringEventSource {
   final _events = StreamController<TuringEvent>();
 
   @override

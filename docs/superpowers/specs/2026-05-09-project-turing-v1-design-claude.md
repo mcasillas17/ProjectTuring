@@ -1,10 +1,10 @@
-# Project Turing v1.0 — Design
+# TuringAgent v1.0 — Design
 
 **Status:** Approved through brainstorming on 2026-05-09. Supersedes `docs/Project_Turing_Tech_Spec_Codex.md`.
 
 ## 1. Problem & Goals
 
-Project Turing is a local-first personal AI orchestration platform that runs primarily on a Mac Mini and provides a private AI assistant layer across desktop and mobile. The v1.0 release establishes the foundation: a client-agnostic backend, one production client, one tool server, and the security primitives needed for v1.1's filesystem and approval-bearing tools.
+TuringAgent is a local-first personal AI orchestration platform that runs primarily on a Mac Mini and provides a private AI assistant layer across desktop and mobile. The v1.0 release establishes the foundation: a client-agnostic backend, one production client, one tool server, and the security primitives needed for v1.1's filesystem and approval-bearing tools.
 
 **Mental model.** *One brain* (the Node/TypeScript orchestrator), *many faces* (Flutter first, native macOS/Windows/Android later), *several hands* (MCP servers, native bridges later).
 
@@ -607,7 +607,7 @@ Likely targets: `keytar` (cross-platform OS keychain) or HashiCorp Vault. The ap
 ## 9. Repo Layout
 
 ```
-ProjectTuring/
+TuringAgent/
 ├── README.md
 ├── LICENSE
 ├── docs/

@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+import "google/protobuf/struct.proto";
+import "turing/v1/common.proto";
+
+enum ToolCallPhase {
+  TOOL_CALL_PHASE_UNSPECIFIED = 0;
+  TOOL_CALL_PHASE_BEFORE = 1;
+  TOOL_CALL_PHASE_AFTER = 2;
+}
+
+enum ToolCallStatus {
+  TOOL_CALL_STATUS_UNSPECIFIED = 0;
+  TOOL_CALL_STATUS_COMPLETED = 1;
+  TOOL_CALL_STATUS_FAILED = 2;
+  TOOL_CALL_STATUS_DENIED = 3;
+}
+
+message ToolCallError {
+  string code = 1;
+  string message = 2;
+}
+
+message ToolCallBeacon {
+  ToolCallPhase phase = 1;
+  string tool_call_id = 2;
+  AgentId agent_id = 3;
+  string server_name = 4;
+  string tool_name = 5;
+  google.protobuf.Struct args = 6;
+  ToolCallStatus status = 7;
+  string result_summary = 8;
+  int64 duration_ms = 9;
+  ToolCallError error = 10;
+  string run_id = 11;
+  string trace_id = 12;
+}
+
+message ToolPolicyDecision {
+  enum Decision {
+    DECISION_UNSPECIFIED = 0;
+    DECISION_ALLOW = 1;
+    DECISION_DENY = 2;
+    DECISION_APPROVAL_REQUIRED = 3;
+  }
+  Decision decision = 1;
+  string tool_call_id = 2;
+  string approval_id = 3;
+  string reason = 4;
+}

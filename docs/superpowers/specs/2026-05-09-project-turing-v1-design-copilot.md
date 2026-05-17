@@ -1,4 +1,4 @@
-# Project Turing v1.0 Design — Hybrid Runtime
+# TuringAgent v1.0 Design — Hybrid Runtime
 
 ## Status
 
@@ -21,7 +21,7 @@ It keeps the product-facing pieces from the Copilot design and adopts the Claude
 
 ## Problem
 
-Project Turing should become a local-first personal AI orchestration platform, not a single chatbot or a client-specific app. The v1.0 release needs a strong foundation that proves the core pipeline while avoiding premature complexity across native apps, semantic memory, external OAuth integrations, vision, voice, and IoT.
+TuringAgent should become a local-first personal AI orchestration platform, not a single chatbot or a client-specific app. The v1.0 release needs a strong foundation that proves the core pipeline while avoiding premature complexity across native apps, semantic memory, external OAuth integrations, vision, voice, and IoT.
 
 The v1.0 architecture should prove that one backend brain can coordinate one first client face and several tool hands while preserving security boundaries that will still make sense when more agents and MCP servers are added.
 
@@ -57,7 +57,7 @@ Claude's smaller cut moved files MCP and approval UI to v1.1. This canonical hyb
 
 ## Architecture
 
-Project Turing v1.0 uses a split runtime spine:
+TuringAgent v1.0 uses a split runtime spine:
 
 ```text
 Flutter client

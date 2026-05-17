@@ -1,4 +1,4 @@
-# Project Turing v1.0 Consolidation Report
+# TuringAgent v1.0 Consolidation Report
 
 ## Sources compared
 

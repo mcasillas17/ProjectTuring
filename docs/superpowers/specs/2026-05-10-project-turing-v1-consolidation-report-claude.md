@@ -1,4 +1,4 @@
-# Project Turing v1.0 Consolidation Report (Claude perspective)
+# TuringAgent v1.0 Consolidation Report (Claude perspective)
 
 **Author:** Claude Code session, 2026-05-10
 **Companion to:** `2026-05-10-project-turing-v1-consolidation-report.md` (Copilot perspective)

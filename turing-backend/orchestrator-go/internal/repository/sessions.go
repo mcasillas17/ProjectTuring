@@ -1,0 +1,108 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/db"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/ids"
+)
+
+type Repository struct {
+	db *db.DB
+}
+
+func New(database *db.DB) *Repository {
+	return &Repository{db: database}
+}
+
+type Session struct {
+	SessionID string
+	Title     sql.NullString
+	Status    string
+	CreatedAt string
+	UpdatedAt string
+}
+
+type Message struct {
+	MessageID   string
+	Role        string
+	Content     string
+	ContentType string
+	Sequence    int64
+	CreatedAt   string
+}
+
+func now() string {
+	return time.Now().UTC().Format(time.RFC3339Nano)
+}
+
+func (r *Repository) CreateSession(ctx context.Context, title string) (Session, error) {
+	createdAt := now()
+	session := Session{SessionID: ids.New("sess"), Status: "active", CreatedAt: createdAt, UpdatedAt: createdAt}
+	if title != "" {
+		session.Title = sql.NullString{String: title, Valid: true}
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)`, session.SessionID, nullableString(session.Title), createdAt, createdAt)
+	return session, err
+}
+
+func (r *Repository) ListSessions(ctx context.Context, limit int) ([]Session, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, title, status, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []Session
+	for rows.Next() {
+		var session Session
+		if err := rows.Scan(&session.SessionID, &session.Title, &session.Status, &session.CreatedAt, &session.UpdatedAt); err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, rows.Err()
+}
+
+func (r *Repository) GetSession(ctx context.Context, sessionID string) (Session, error) {
+	var session Session
+	err := r.db.QueryRowContext(ctx, `SELECT id, title, status, created_at, updated_at FROM sessions WHERE id = ?`, sessionID).Scan(&session.SessionID, &session.Title, &session.Status, &session.CreatedAt, &session.UpdatedAt)
+	return session, err
+}
+
+func (r *Repository) ListMessages(ctx context.Context, sessionID string, limit int) ([]Message, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, role, content, content_type, sequence, created_at FROM messages WHERE session_id = ? ORDER BY sequence DESC LIMIT ?`, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var reversed []Message
+	for rows.Next() {
+		var msg Message
+		if err := rows.Scan(&msg.MessageID, &msg.Role, &msg.Content, &msg.ContentType, &msg.Sequence, &msg.CreatedAt); err != nil {
+			return nil, err
+		}
+		reversed = append(reversed, msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
+		reversed[i], reversed[j] = reversed[j], reversed[i]
+	}
+	return reversed, nil
+}
+
+func nullableString(value sql.NullString) any {
+	if value.Valid {
+		return value.String
+	}
+	return nil
+}

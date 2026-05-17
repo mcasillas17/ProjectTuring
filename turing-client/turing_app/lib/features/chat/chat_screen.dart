@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../../models/turing_event.dart';
 import '../../networking/api_client.dart';
-import '../../networking/ws_client.dart';
+import '../../networking/event_source.dart';
 import '../approvals/approval_card.dart';
 import 'model_provider_selector.dart';
 
@@ -14,12 +14,12 @@ class ChatScreen extends StatefulWidget {
     super.key,
     required this.sessionId,
     required this.apiClient,
-    required this.wsClient,
+    required this.eventSource,
   });
 
   final String sessionId;
   final TuringApi apiClient;
-  final TuringEventSource wsClient;
+  final TuringEventSource eventSource;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -39,7 +39,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadInitialMessages();
-    _subscription = widget.wsClient
+    _subscription = widget.eventSource
         .connect(sessionId: widget.sessionId, lastSequence: _lastSequence)
         .listen(_applyEvent);
   }
@@ -236,7 +236,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _subscription?.cancel();
-    widget.wsClient.close();
+    widget.eventSource.close();
     for (final message in _messages) {
       message.content.dispose();
     }

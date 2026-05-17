@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+enum AgentId {
+  AGENT_ID_UNSPECIFIED = 0;
+  AGENT_ID_GENERAL_ASSISTANT = 1;
+}
+
+enum ModelProvider {
+  MODEL_PROVIDER_UNSPECIFIED = 0;
+  MODEL_PROVIDER_OLLAMA = 1;
+  MODEL_PROVIDER_OPENAI_COMPATIBLE = 2;
+}
+
+enum MessageRole {
+  MESSAGE_ROLE_UNSPECIFIED = 0;
+  MESSAGE_ROLE_SYSTEM = 1;
+  MESSAGE_ROLE_USER = 2;
+  MESSAGE_ROLE_ASSISTANT = 3;
+  MESSAGE_ROLE_TOOL = 4;
+}
+
+enum ToolPolicy {
+  TOOL_POLICY_UNSPECIFIED = 0;
+  TOOL_POLICY_SAFE = 1;
+  TOOL_POLICY_APPROVAL_REQUIRED = 2;
+  TOOL_POLICY_DISABLED = 3;
+}
+
+enum RunStatus {
+  RUN_STATUS_UNSPECIFIED = 0;
+  RUN_STATUS_QUEUED = 1;
+  RUN_STATUS_RUNNING = 2;
+  RUN_STATUS_WAITING_APPROVAL = 3;
+  RUN_STATUS_COMPLETED = 4;
+  RUN_STATUS_FAILED = 5;
+  RUN_STATUS_CANCELLED = 6;
+}
+
+message RequestMetadata {
+  string request_id = 1;
+}
+
+message PageRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message PageResponse {
+  string next_cursor = 1;
+}
+
+message ErrorDetail {
+  string code = 1;
+  string message = 2;
+  string request_id = 3;
+  google.protobuf.Struct details = 4;
+}
+
+message ProviderConfig {
+  ModelProvider provider = 1;
+  bool enabled = 2;
+  string default_model = 3;
+}
+
+message AgentDescriptor {
+  AgentId id = 1;
+  string display_name = 2;
+}
+
+message Message {
+  string message_id = 1;
+  string session_id = 2;
+  string run_id = 3;
+  MessageRole role = 4;
+  string content = 5;
+  string content_type = 6;
+  int64 sequence = 7;
+  google.protobuf.Timestamp created_at = 8;
+}

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+import "google/protobuf/struct.proto";
+
+message McpRequest {
+  string server_name = 1;
+  string method = 2;
+  google.protobuf.Struct params = 3;
+}
+
+message McpResult {
+  google.protobuf.Struct result = 1;
+}

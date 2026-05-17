@@ -7,7 +7,7 @@ import 'package:turing_flutter_app/models/message.dart';
 import 'package:turing_flutter_app/models/session.dart';
 import 'package:turing_flutter_app/models/turing_event.dart';
 import 'package:turing_flutter_app/networking/api_client.dart';
-import 'package:turing_flutter_app/networking/ws_client.dart';
+import 'package:turing_flutter_app/networking/event_source.dart';
 
 void main() {
   testWidgets('chat streams message deltas into one assistant bubble', (
@@ -21,7 +21,7 @@ void main() {
         home: ChatScreen(
           sessionId: 'sess_1',
           apiClient: apiClient,
-          wsClient: _FakeWsClient(events.stream),
+          eventSource: _FakeEventSource(events.stream),
         ),
       ),
     );
@@ -49,7 +49,9 @@ void main() {
     unawaited(events.close());
   });
 
-  testWidgets('chat sends selected provider through REST', (tester) async {
+  testWidgets('chat sends selected provider through API client', (
+    tester,
+  ) async {
     final events = StreamController<TuringEvent>(sync: true);
     final apiClient = _FakeApiClient();
 
@@ -58,7 +60,7 @@ void main() {
         home: ChatScreen(
           sessionId: 'sess_1',
           apiClient: apiClient,
-          wsClient: _FakeWsClient(events.stream),
+          eventSource: _FakeEventSource(events.stream),
         ),
       ),
     );
@@ -90,7 +92,7 @@ void main() {
         home: ChatScreen(
           sessionId: 'sess_1',
           apiClient: apiClient,
-          wsClient: _FakeWsClient(events.stream),
+          eventSource: _FakeEventSource(events.stream),
         ),
       ),
     );
@@ -219,8 +221,8 @@ class _FakeApiClient implements TuringApi {
   }
 }
 
-class _FakeWsClient implements TuringEventSource {
-  _FakeWsClient(this._events);
+class _FakeEventSource implements TuringEventSource {
+  _FakeEventSource(this._events);
 
   final Stream<TuringEvent> _events;
   bool closed = false;

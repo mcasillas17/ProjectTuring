@@ -5,13 +5,13 @@ import '../../features/settings/settings_screen.dart';
 import '../../logic/theme_logic.dart';
 import '../../networking/api_client.dart';
 import '../../networking/auth_storage.dart';
-import '../../networking/ws_client.dart';
+import '../../networking/event_source.dart';
 
 class ResponsiveShell extends StatefulWidget {
   const ResponsiveShell({
     super.key,
     required this.apiClient,
-    required this.wsClientFactory,
+    required this.eventSourceFactory,
     this.authStorage,
     this.initialBackendUrl = 'http://localhost:3000',
     this.initialApiKey = '',
@@ -19,7 +19,7 @@ class ResponsiveShell extends StatefulWidget {
   });
 
   final TuringApi apiClient;
-  final TuringEventSource Function() wsClientFactory;
+  final TuringEventSource Function() eventSourceFactory;
   final ClientAuthStorage? authStorage;
   final String initialBackendUrl;
   final String initialApiKey;
@@ -174,7 +174,7 @@ class _ResponsiveShellState extends State<ResponsiveShell> {
     return switch (_selectedIndex) {
       0 => SessionListScreen(
         apiClient: widget.apiClient,
-        wsClientFactory: widget.wsClientFactory,
+        eventSourceFactory: widget.eventSourceFactory,
         embedded: true,
       ),
       1 => const Center(

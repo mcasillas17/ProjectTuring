@@ -1,8 +1,8 @@
-# Project Turing v1.0 Hybrid Runtime Implementation Plan
+# TuringAgent v1.0 Hybrid Runtime Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the v1.0 local-first Project Turing vertical slice: Flutter client -> Node/TypeScript orchestrator -> SQLite -> separate agent runtime -> Ollama/MCP -> durable WebSocket event stream.
+**Goal:** Build the v1.0 local-first TuringAgent vertical slice: Flutter client -> Node/TypeScript orchestrator -> SQLite -> separate agent runtime -> Ollama/MCP -> durable WebSocket event stream.
 
 **Architecture:** The orchestrator owns public REST/WebSocket APIs, SQLite, policy, approvals, jobs, and audit. A separate `turing-agent-runtime-general` container claims jobs over the internal API, streams model/tool events back to the orchestrator, and calls MCP servers directly with per-agent tokens. Go MCP servers are internal-only and protected by Docker networks, bearer tokens, and approval JWTs for sensitive file writes.
 
@@ -162,7 +162,7 @@ Edit `turing-client/flutter_app/pubspec.yaml`:
 
 ```yaml
 name: turing_flutter_app
-description: "Project Turing Flutter client."
+description: "TuringAgent Flutter client."
 publish_to: 'none'
 version: 1.0.0+1
 ```
@@ -311,7 +311,7 @@ rm -f .env.bak
 mkdir -p data sandbox
 
 client_key="$(grep '^TURING_CLIENT_API_KEY=' .env | cut -d= -f2-)"
-printf 'Project Turing backend initialized.\n'
+printf 'TuringAgent backend initialized.\n'
 printf 'Flutter client API key: %s\n' "$client_key"
 ```
 
@@ -330,7 +330,7 @@ Create `turing-backend/scripts/reset.sh`:
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-read -r -p "Delete Project Turing local data and regenerate .env? Type RESET: " answer
+read -r -p "Delete TuringAgent local data and regenerate .env? Type RESET: " answer
 if [[ "$answer" != "RESET" ]]; then
   echo "Reset cancelled."
   exit 1
@@ -5623,7 +5623,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Project Turing Settings')),
+      appBar: AppBar(title: const Text('TuringAgent Settings')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -5711,7 +5711,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Project Turing')),
+      appBar: AppBar(title: const Text('TuringAgent')),
       body: Column(
         children: [
           Expanded(child: ListView(children: _messages.map((message) => ListTile(title: Text(message))).toList())),
@@ -5815,7 +5815,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Project Turing Sessions')),
+      appBar: AppBar(title: const Text('TuringAgent Sessions')),
       body: Center(
         child: FilledButton(
           onPressed: _creating ? null : _createSession,
@@ -5845,7 +5845,7 @@ class TuringApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Project Turing',
+      title: 'TuringAgent',
       theme: ThemeData(colorSchemeSeed: Colors.deepPurple, useMaterial3: true),
       home: FutureBuilder<_ClientConfig?>(
         future: _loadConfig(),
@@ -5932,7 +5932,7 @@ session_id="$(node -e "console.log(JSON.parse(process.argv[1]).sessionId)" "$ses
 message_json="$(curl --fail -s \
   -H "Authorization: Bearer ${api_key}" \
   -H "content-type: application/json" \
-  -d '{"content":"Say hello from Project Turing smoke test","modelProvider":"ollama"}' \
+  -d '{"content":"Say hello from TuringAgent smoke test","modelProvider":"ollama"}' \
   "http://localhost:3000/api/sessions/${session_id}/messages")"
 run_id="$(node -e "console.log(JSON.parse(process.argv[1]).runId)" "$message_json")"
 
@@ -6014,7 +6014,7 @@ chmod +x turing-backend/scripts/smoke.sh
 Add to `README.md`:
 
 ````markdown
-## Project Turing v1.0 local runtime
+## TuringAgent v1.0 local runtime
 
 Initialize backend secrets:
 

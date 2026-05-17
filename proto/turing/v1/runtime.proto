@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package turing.v1;
+
+option go_package = "github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1";
+
+import "google/protobuf/struct.proto";
+import "turing/v1/common.proto";
+import "turing/v1/events.proto";
+import "turing/v1/tools.proto";
+
+message AgentJob {
+  string job_id = 1;
+  string run_id = 2;
+  string session_id = 3;
+  string user_message_id = 4;
+  string assistant_message_id = 5;
+  AgentId agent_id = 6;
+  string trace_id = 7;
+  ModelProvider model_provider = 8;
+  string model = 9;
+  string user_text = 10;
+  repeated string requested_tools = 11;
+  int32 attempt = 12;
+}
+
+message RuntimeWorkerReady {
+  string worker_id = 1;
+  AgentId agent_id = 2;
+  int32 max_concurrent_runs = 3;
+}
+
+message RuntimeHeartbeat {
+  string worker_id = 1;
+}
+
+message RuntimeRunCompleted {
+  string run_id = 1;
+  string assistant_message_id = 2;
+  string content = 3;
+  google.protobuf.Struct usage = 4;
+}
+
+message RuntimeRunFailed {
+  string run_id = 1;
+  string code = 2;
+  string message = 3;
+  bool retryable = 4;
+}
+
+message RuntimeCancelledAck {
+  string run_id = 1;
+}
+
+message RuntimeUpdate {
+  oneof update {
+    RuntimeWorkerReady worker_ready = 1;
+    RuntimeHeartbeat heartbeat = 2;
+    TuringEvent event = 3;
+    ToolCallBeacon tool_beacon = 4;
+    RuntimeRunCompleted run_completed = 5;
+    RuntimeRunFailed run_failed = 6;
+    RuntimeCancelledAck run_cancelled_ack = 7;
+  }
+}
+
+message RuntimeWorkerAccepted {
+  string worker_id = 1;
+}
+
+message RuntimeRunCancelled {
+  string run_id = 1;
+  string reason = 2;
+}
+
+message RuntimeApprovalUpdated {
+  string approval_id = 1;
+  string approval_token = 2;
+  string status = 3;
+}
+
+message RuntimeShutdownRequested {
+  string reason = 1;
+}
+
+message RuntimeCommand {
+  oneof command {
+    RuntimeWorkerAccepted worker_accepted = 1;
+    AgentJob run_assigned = 2;
+    RuntimeRunCancelled run_cancelled = 3;
+    RuntimeApprovalUpdated approval_updated = 4;
+    RuntimeShutdownRequested shutdown_requested = 5;
+    ToolPolicyDecision tool_policy_decision = 6;
+  }
+}
+
+service RuntimeService {
+  rpc ConnectWorker(stream RuntimeUpdate) returns (stream RuntimeCommand);
+}
