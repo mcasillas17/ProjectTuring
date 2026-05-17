@@ -136,6 +136,9 @@ func (r *Repository) ExpireApproval(ctx context.Context, approvalID string, deci
 	if err := expectOneRow(result, "run not found for approval"); err != nil {
 		return ApprovalRecord{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'failed', finished_at = ?, error_code = 'approval_expired', error_message = 'Approval expired', lease_owner = NULL, lease_expires_at = NULL WHERE run_id = (SELECT run_id FROM approvals WHERE id = ?) AND status IN ('pending','in_progress')`, decidedAt, approvalID); err != nil {
+		return ApprovalRecord{}, err
+	}
 	record, err := approvalByID(ctx, tx, approvalID)
 	if err != nil {
 		return ApprovalRecord{}, err
@@ -167,6 +170,9 @@ func (r *Repository) DenyApproval(ctx context.Context, approvalID string, decide
 		return ApprovalRecord{}, err
 	}
 	if err := expectOneRow(result, "run not found for approval"); err != nil {
+		return ApprovalRecord{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'failed', finished_at = ?, error_code = 'approval_denied', error_message = 'User denied approval', lease_owner = NULL, lease_expires_at = NULL WHERE run_id = (SELECT run_id FROM approvals WHERE id = ?) AND status IN ('pending','in_progress')`, decidedAt, approvalID); err != nil {
 		return ApprovalRecord{}, err
 	}
 	record, err := approvalByID(ctx, tx, approvalID)

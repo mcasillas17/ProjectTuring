@@ -13,6 +13,7 @@ import (
 	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/safejson"
+	approvalsvc "github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/approvals"
 	auditsvc "github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/audit"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/events"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/tools"
@@ -57,7 +58,11 @@ func New(repo *repository.Repository, bus *events.Bus, approvalServices ...appro
 	if len(approvalServices) > 0 {
 		approvals = approvalServices[0]
 	}
-	return &Server{repo: repo, bus: bus, approvals: approvals, audit: auditsvc.New(repo), workers: map[string]*worker{}}
+	server := &Server{repo: repo, bus: bus, approvals: approvals, audit: auditsvc.New(repo), workers: map[string]*worker{}}
+	if setter, ok := approvals.(interface{ SetNotifier(approvalsvc.Notifier) }); ok {
+		setter.SetNotifier(server)
+	}
+	return server
 }
 
 func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServer) error {
@@ -594,7 +599,7 @@ func (s *Server) handleToolBefore(ctx context.Context, beacon *turingv1.ToolCall
 	}
 	if policy == tools.PolicyApprovalRequired {
 		if err := s.repo.RecordToolCallBefore(ctx, repository.ToolCallRecord{ToolCallID: beacon.ToolCallId, RunID: beacon.RunId}, "general_assistant", beaconServerName(beacon), beacon.ToolName, argsJSON, argsHash); err != nil {
-			return nil, err
+			return nil, mapToolCallError(err)
 		}
 		if s.approvals == nil {
 			return nil, status.Error(codes.FailedPrecondition, "approval service is not configured")
@@ -610,7 +615,7 @@ func (s *Server) handleToolBefore(ctx context.Context, beacon *turingv1.ToolCall
 		statusValue = "allowed"
 	}
 	if err := s.repo.RecordToolCallBefore(ctx, repository.ToolCallRecord{ToolCallID: beacon.ToolCallId, RunID: beacon.RunId, Status: statusValue}, "general_assistant", beaconServerName(beacon), beacon.ToolName, argsJSON, argsHash); err != nil {
-		return nil, err
+		return nil, mapToolCallError(err)
 	}
 	event, err := s.appendToolEvent(ctx, run, "tool.call.started", map[string]any{
 		"toolCallId": beacon.ToolCallId,
@@ -635,7 +640,7 @@ func (s *Server) handleToolBefore(ctx context.Context, beacon *turingv1.ToolCall
 
 func (s *Server) denyToolBefore(ctx context.Context, beacon *turingv1.ToolCallBeacon, run repository.Run, argsJSON string, argsHash string, reason string) (*turingv1.ToolPolicyDecision, error) {
 	if err := s.repo.RecordToolCallBefore(ctx, repository.ToolCallRecord{ToolCallID: beacon.ToolCallId, RunID: beacon.RunId, Status: "denied"}, "general_assistant", beaconServerName(beacon), beacon.ToolName, argsJSON, argsHash); err != nil {
-		return nil, err
+		return nil, mapToolCallError(err)
 	}
 	event, err := s.appendToolEvent(ctx, run, "tool.call.denied", map[string]any{
 		"toolCallId": beacon.ToolCallId,
@@ -666,7 +671,7 @@ func (s *Server) handleToolAfter(ctx context.Context, beacon *turingv1.ToolCallB
 		errorMessage = beacon.Error.Message
 	}
 	if err := s.repo.RecordToolCallAfter(ctx, beacon.ToolCallId, beacon.RunId, statusValue, beacon.ResultSummary, errorCode, errorMessage, beacon.DurationMs); err != nil {
-		return nil, err
+		return nil, mapToolCallError(err)
 	}
 	payload := map[string]any{
 		"toolCallId":    beacon.ToolCallId,
@@ -697,11 +702,31 @@ func (s *Server) NotifyApprovalUpdated(ctx context.Context, runID string, approv
 	}
 	sendCtx, cancel := withDefaultTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return owner.send(sendCtx, &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_ApprovalUpdated{ApprovalUpdated: &turingv1.RuntimeApprovalUpdated{
+	if err := owner.send(sendCtx, &turingv1.RuntimeCommand{Command: &turingv1.RuntimeCommand_ApprovalUpdated{ApprovalUpdated: &turingv1.RuntimeApprovalUpdated{
 		ApprovalId:    approvalID,
 		ApprovalToken: approvalToken,
 		Status:        approvalStatus,
-	}}})
+	}}}); err != nil {
+		return err
+	}
+	if approvalStatus == "denied" || approvalStatus == "expired" {
+		owner.releaseRun(runID)
+		if err := s.DispatchPending(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mapToolCallError(err error) error {
+	switch {
+	case errors.Is(err, repository.ErrToolCallConflict):
+		return status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, repository.ErrToolCallNotFound):
+		return status.Error(codes.NotFound, err.Error())
+	default:
+		return err
+	}
 }
 
 func toolAfterStatus(beacon *turingv1.ToolCallBeacon) (string, string, error) {

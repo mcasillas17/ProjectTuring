@@ -6,6 +6,11 @@ import (
 	"errors"
 )
 
+var (
+	ErrToolCallConflict = errors.New("tool call conflict")
+	ErrToolCallNotFound = errors.New("tool call not found")
+)
+
 type ToolCallRecord struct {
 	ToolCallID string
 	RunID      string
@@ -29,7 +34,7 @@ func (r *Repository) RecordToolCallBefore(ctx context.Context, record ToolCallRe
 		if existingRunID == record.RunID && existingAgentID == agentID && existingServerName == serverName && existingToolName == toolName && existingArgsHash == argsHash {
 			return tx.Commit()
 		}
-		return errors.New("tool call conflict")
+		return ErrToolCallConflict
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -57,7 +62,7 @@ func (r *Repository) RecordToolCallAfter(ctx context.Context, toolCallID string,
 	if err != nil {
 		return err
 	}
-	if err := expectOneRow(result, "tool call not found"); err != nil {
+	if err := expectOneRowErr(result, ErrToolCallNotFound); err != nil {
 		return err
 	}
 	return tx.Commit()

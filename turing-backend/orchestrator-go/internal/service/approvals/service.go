@@ -26,11 +26,11 @@ type Server struct {
 	repo      *repository.Repository
 	bus       *events.Bus
 	audit     *audit.Server
-	notifier  approvalNotifier
+	notifier  Notifier
 	jwtSecret string
 }
 
-type approvalNotifier interface {
+type Notifier interface {
 	NotifyApprovalUpdated(ctx context.Context, runID string, approvalID string, status string, approvalToken string) error
 }
 
@@ -38,7 +38,7 @@ func New(repo *repository.Repository, bus *events.Bus, jwtSecret string) *Server
 	return &Server{repo: repo, bus: bus, audit: audit.New(repo), jwtSecret: jwtSecret}
 }
 
-func (s *Server) SetNotifier(notifier approvalNotifier) {
+func (s *Server) SetNotifier(notifier Notifier) {
 	s.notifier = notifier
 }
 

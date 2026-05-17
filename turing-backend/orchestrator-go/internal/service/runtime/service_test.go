@@ -27,11 +27,12 @@ import (
 )
 
 type harness struct {
-	repo     *repository.Repository
-	database *db.DB
-	bus      *events.Bus
-	service  *Server
-	conn     *grpc.ClientConn
+	repo      *repository.Repository
+	database  *db.DB
+	bus       *events.Bus
+	service   *Server
+	approvals *approvalsvc.Server
+	conn      *grpc.ClientConn
 }
 
 func newHarness(t *testing.T) *harness {
@@ -39,7 +40,8 @@ func newHarness(t *testing.T) *harness {
 	database := openRuntimeTestDB(t)
 	repo := repository.New(database)
 	bus := events.NewBus(8)
-	service := New(repo, bus, approvalsvc.New(repo, bus, "approval-secret"))
+	approvals := approvalsvc.New(repo, bus, "approval-secret")
+	service := New(repo, bus, approvals)
 	lis := bufconn.Listen(1024 * 1024)
 	grpcServer := grpc.NewServer(grpc.StreamInterceptor(auth.StreamInterceptor("internal-token")))
 	turingv1.RegisterRuntimeServiceServer(grpcServer, service)
@@ -59,7 +61,7 @@ func newHarness(t *testing.T) *harness {
 		grpcServer.Stop()
 		_ = conn.Close()
 	})
-	return &harness{repo: repo, database: database, bus: bus, service: service, conn: conn}
+	return &harness{repo: repo, database: database, bus: bus, service: service, approvals: approvals, conn: conn}
 }
 
 func openRuntimeTestDB(t *testing.T) *db.DB {
@@ -1049,6 +1051,177 @@ func TestToolBeaconRequiresApprovalForFilesTool(t *testing.T) {
 	}
 }
 
+func TestApprovingApprovalNotifiesAssignedWorkerWithToken(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.enqueueRun(t, "files approval")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-approval-notify", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == enqueued.RunID
+	})
+	args, err := structpb.NewStruct(map[string]any{"path": "note.txt", "content": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      enqueued.RunID,
+		TraceId:    enqueued.TraceID,
+		ToolCallId: "call_approval_notify",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "files",
+		ToolName:   "files.update",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+		Args:       args,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	decision := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		decision := cmd.GetToolPolicyDecision()
+		return decision != nil && decision.ToolCallId == "call_approval_notify"
+	}).GetToolPolicyDecision()
+	if _, err := h.approvals.ApproveApproval(context.Background(), &turingv1.ApproveApprovalRequest{ApprovalId: decision.ApprovalId}); err != nil {
+		t.Fatal(err)
+	}
+	update := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		update := cmd.GetApprovalUpdated()
+		return update != nil && update.ApprovalId == decision.ApprovalId
+	}).GetApprovalUpdated()
+	if update.Status != "approved" || !strings.Contains(update.ApprovalToken, ".") {
+		t.Fatalf("approval_updated = %+v", update)
+	}
+}
+
+func TestDenyingApprovalReleasesWorkerAndFailsJob(t *testing.T) {
+	h := newHarness(t)
+	first := h.enqueueRun(t, "first approval")
+	second := h.enqueueRun(t, "second after denial")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-deny-release", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == first.RunID
+	})
+	args, err := structpb.NewStruct(map[string]any{"path": "note.txt", "content": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      first.RunID,
+		TraceId:    first.TraceID,
+		ToolCallId: "call_deny_release",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "files",
+		ToolName:   "files.update",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+		Args:       args,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	decision := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		decision := cmd.GetToolPolicyDecision()
+		return decision != nil && decision.ToolCallId == "call_deny_release"
+	}).GetToolPolicyDecision()
+	if _, err := h.approvals.DenyApproval(context.Background(), &turingv1.DenyApprovalRequest{ApprovalId: decision.ApprovalId, Reason: "no"}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		update := cmd.GetApprovalUpdated()
+		return update != nil && update.ApprovalId == decision.ApprovalId && update.Status == "denied"
+	})
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == second.RunID
+	})
+	var jobStatus string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT status FROM jobs WHERE id = ?`, first.JobID).Scan(&jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "failed" {
+		t.Fatalf("denied job status = %q, want failed", jobStatus)
+	}
+}
+
+func TestExpiredApprovalReleasesWorkerAndFailsJob(t *testing.T) {
+	h := newHarness(t)
+	first := h.enqueueRun(t, "first approval")
+	second := h.enqueueRun(t, "second after expiry")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-expire-release", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == first.RunID
+	})
+	args, err := structpb.NewStruct(map[string]any{"path": "note.txt", "content": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      first.RunID,
+		TraceId:    first.TraceID,
+		ToolCallId: "call_expire_release",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "files",
+		ToolName:   "files.update",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+		Args:       args,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	decision := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		decision := cmd.GetToolPolicyDecision()
+		return decision != nil && decision.ToolCallId == "call_expire_release"
+	}).GetToolPolicyDecision()
+	if _, err := h.database.ExecContext(context.Background(), `UPDATE approvals SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Minute).Format(time.RFC3339Nano), decision.ApprovalId); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.approvals.ApproveApproval(context.Background(), &turingv1.ApproveApprovalRequest{ApprovalId: decision.ApprovalId}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("ApproveApproval expired error = %v, want FailedPrecondition", err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		update := cmd.GetApprovalUpdated()
+		return update != nil && update.ApprovalId == decision.ApprovalId && update.Status == "expired"
+	})
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == second.RunID
+	})
+	var jobStatus string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT status FROM jobs WHERE id = ?`, first.JobID).Scan(&jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "failed" {
+		t.Fatalf("expired job status = %q, want failed", jobStatus)
+	}
+}
+
 func TestToolBeaconDeniesApprovalRequiredToolWithoutArgs(t *testing.T) {
 	h := newHarness(t)
 	enqueued := h.enqueueRun(t, "missing approval args")
@@ -1156,6 +1329,60 @@ func TestToolBeaconDeniesUnknownToolWithDurableEvent(t *testing.T) {
 	}
 	if payload["toolCallId"] != "call_unknown" || payload["reason"] != "unknown_tool" {
 		t.Fatalf("tool.call.denied payload = %+v", payload)
+	}
+}
+
+func TestToolBeaconConflictMapsToAlreadyExists(t *testing.T) {
+	h := newHarness(t)
+	first := h.createRunningRunResult(t, "first tool call")
+	second := h.createRunningRunResult(t, "second tool call")
+	args, err := structpb.NewStruct(map[string]any{"value": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      first.RunID,
+		TraceId:    first.TraceID,
+		ToolCallId: "call_conflict",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "system",
+		ToolName:   "system.echo",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+		Args:       args,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	err = h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      second.RunID,
+		TraceId:    second.TraceID,
+		ToolCallId: "call_conflict",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "system",
+		ToolName:   "system.echo",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+		Args:       args,
+	}}})
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("tool call conflict error = %v, want AlreadyExists", err)
+	}
+}
+
+func TestToolBeaconAfterMissingCallMapsToNotFound(t *testing.T) {
+	h := newHarness(t)
+	run := h.createRunningRunResult(t, "missing tool call")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:         run.RunID,
+		TraceId:       run.TraceID,
+		ToolCallId:    "call_missing",
+		AgentId:       turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName:    "system",
+		ToolName:      "system.echo",
+		Phase:         turingv1.ToolCallPhase_TOOL_CALL_PHASE_AFTER,
+		Status:        turingv1.ToolCallStatus_TOOL_CALL_STATUS_COMPLETED,
+		ResultSummary: "done",
+	}}})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("missing tool call error = %v, want NotFound", err)
 	}
 }
 
