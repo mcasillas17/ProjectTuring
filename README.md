@@ -1,8 +1,8 @@
-# Project Turing
+# TuringAgent
 
-Project Turing is a local-first personal AI orchestration platform. It coordinates a Flutter client with a Go gRPC orchestrator that manages sessions, agent runs, runtime events, and MCP tool calls.
+TuringAgent is a local-first personal AI orchestration platform. It coordinates a Flutter client with a Go gRPC orchestrator that manages sessions, agent runs, runtime events, and MCP tool calls.
 
-## Project Turing v1.0 local runtime
+## TuringAgent v1.0 local runtime
 
 > **Status:** v1.0 foundation is integrated on `pturing-v1-base`. The local stack includes the Go orchestrator, SQLite persistence, the Go general agent runtime, Go MCP servers, Ollama routing, public gRPC streaming, and the Flutter client shell.
 
@@ -10,7 +10,7 @@ Project Turing is a local-first personal AI orchestration platform. It coordinat
 
 - **Docker and Docker Compose**: Required for running the orchestrator, agent runtime, and MCP servers.
 - **Go 1.23+**: Required for local Go tests and the gRPC smoke client.
-- **Ollama**: Must be running on your host machine for model-backed chat. Project Turing expects Ollama to be reachable at `http://host.docker.internal:11434` from within Docker.
+- **Ollama**: Must be running on your host machine for model-backed chat. TuringAgent expects Ollama to be reachable at `http://host.docker.internal:11434` from within Docker.
 - **Flutter**: Required for building and running the client application.
 
 ### Backend setup

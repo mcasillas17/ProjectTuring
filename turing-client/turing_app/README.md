@@ -1,6 +1,6 @@
-# Project Turing Flutter Client
+# TuringAgent Flutter Client
 
-This is the v1.0 Flutter client for Project Turing. It is a thin, protocol-driven UI for the local Go gRPC orchestrator: the backend owns sessions, messages, model routing, approvals, tool execution, persistence, and audit state.
+This is the v1.0 Flutter client for TuringAgent. It is a thin, protocol-driven UI for the local Go gRPC orchestrator: the backend owns sessions, messages, model routing, approvals, tool execution, persistence, and audit state.
 
 The client preserves the existing polished `ResponsiveShell` experience. Backend-connected chat, sessions, and settings are integrated into that shell instead of replacing it with a plain debug root.
 
@@ -8,7 +8,7 @@ The client preserves the existing polished `ResponsiveShell` experience. Backend
 
 Implemented in the client:
 
-- Existing Project Turing app shell with desktop navigation rail and mobile drawer.
+- Existing TuringAgent app shell with desktop navigation rail and mobile drawer.
 - Backend URL and API key settings stored through secure client storage.
 - gRPC client for config, sessions, messages, event replay, streaming session events, and approval actions.
 - Chat tab wired to backend sessions and streamed message deltas.
@@ -88,7 +88,7 @@ Approval cards appear from `approval.requested` and are removed on `approval.app
 ## Important Files
 
 - `lib/app.dart`: loads saved client config and chooses Settings or `ResponsiveShell`.
-- `lib/ui/shell/responsive_shell.dart`: polished Project Turing shell and tab integration.
+- `lib/ui/shell/responsive_shell.dart`: polished TuringAgent shell and tab integration.
 - `lib/features/settings/settings_screen.dart`: backend URL/API key form.
 - `lib/features/sessions/session_list_screen.dart`: backend session list and new-chat flow.
 - `lib/features/chat/chat_screen.dart`: active backend-connected chat screen for message loading, sending, streaming deltas, and approvals.

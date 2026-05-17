@@ -1,4 +1,4 @@
-# Project Turing v1.0 Integration Checklist
+# TuringAgent v1.0 Integration Checklist
 
 Use this checklist to validate the integrated v1.0 stack on `pturing-v1-base`.
 

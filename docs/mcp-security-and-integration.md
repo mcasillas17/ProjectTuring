@@ -1,7 +1,7 @@
 # MCP Security and Integration Guide
 
 This document describes the two Go-based MCP (Model Context Protocol) servers
-delivered for Project Turing v1.0 — `mcp-system` and `mcp-files` — and the
+delivered for TuringAgent v1.0 — `mcp-system` and `mcp-files` — and the
 security model that bounds what the assistant runtime can do through them. It
 is paired with the integrated v1 runtime/orchestrator implementation on
 `pturing-v1-base`.
@@ -11,7 +11,7 @@ without reading the Go source.
 
 ## Overview
 
-Project Turing v1.0 splits agent execution out of the orchestrator. The agent
+TuringAgent v1.0 splits agent execution out of the orchestrator. The agent
 runtime calls a small number of MCP servers over JSON-RPC 2.0 (Streamable HTTP)
 on the internal Docker network. Two MCP servers are in scope for v1.0:
 

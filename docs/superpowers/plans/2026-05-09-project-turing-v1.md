@@ -1,8 +1,8 @@
-# Project Turing v1.0 Implementation Plan
+# TuringAgent v1.0 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the v1.0 local-first Project Turing vertical slice: Flutter client -> authenticated REST command API -> Node/TypeScript orchestrator -> SQLite -> Ollama/OpenAI-compatible streaming -> WebSocket events -> Flutter rendering, with system/files MCP tools, approvals, and audit logs.
+**Goal:** Build the v1.0 local-first TuringAgent vertical slice: Flutter client -> authenticated REST command API -> Node/TypeScript orchestrator -> SQLite -> Ollama/OpenAI-compatible streaming -> WebSocket events -> Flutter rendering, with system/files MCP tools, approvals, and audit logs.
 
 **Architecture:** The orchestrator is one modular Node.js process using Fastify, SQLite, JWT auth, typed persisted events, an in-process `AgentExecutor`, model-provider adapters, and MCP tool clients. Flutter remains thin: it owns login/setup UI, session/chat UI, WebSocket rendering, model selection, and approval cards. Go MCP servers run as internal Docker Compose services; Ollama runs on the Mac host.
 
@@ -1696,7 +1696,7 @@ Modify `GeneralAssistantExecutor` so it receives a `ModelRouter`, builds message
 
 ```ts
 [
-  { role: 'system', content: 'You are Project Turing, a local-first personal AI assistant. Be concise, useful, and explicit when a tool or approval is needed.' },
+  { role: 'system', content: 'You are TuringAgent, a local-first personal AI assistant. Be concise, useful, and explicit when a tool or approval is needed.' },
   { role: 'user', content: input.text }
 ]
 ```
@@ -2597,9 +2597,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:turing_app/app.dart';
 
 void main() {
-  testWidgets('renders Project Turing app shell', (tester) async {
+  testWidgets('renders TuringAgent app shell', (tester) async {
     await tester.pumpWidget(const TuringApp());
-    expect(find.text('Project Turing'), findsWidgets);
+    expect(find.text('TuringAgent'), findsWidgets);
   });
 }
 ```
@@ -2700,7 +2700,7 @@ session_id="$(printf '%s' "$session_response" | node -e "const fs=require('fs');
 curl -sS -X POST "$BASE_URL/sessions/$session_id/messages" \
   -H "authorization: Bearer $access_token" \
   -H 'content-type: application/json' \
-  -d '{"text":"Say hello from Project Turing smoke test","modelProvider":"ollama"}'
+  -d '{"text":"Say hello from TuringAgent smoke test","modelProvider":"ollama"}'
 
 printf '\nSmoke session: %s\n' "$session_id"
 ```
@@ -2710,7 +2710,7 @@ printf '\nSmoke session: %s\n' "$session_id"
 Add concise sections to `README.md`:
 
 ```md
-## Project Turing v1 local run
+## TuringAgent v1 local run
 
 1. Start Ollama on the Mac host and pull the configured model.
 2. Copy `turing-backend/.env.example` to `turing-backend/.env`.
