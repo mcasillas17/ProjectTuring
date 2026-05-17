@@ -21,7 +21,7 @@ void main() {
         home: ChatScreen(
           sessionId: 'sess_1',
           apiClient: apiClient,
-          wsClient: _FakeWsClient(events.stream),
+          eventSource: _FakeWsClient(events.stream),
         ),
       ),
     );
@@ -49,7 +49,9 @@ void main() {
     unawaited(events.close());
   });
 
-  testWidgets('chat sends selected provider through REST', (tester) async {
+  testWidgets('chat sends selected provider through API client', (
+    tester,
+  ) async {
     final events = StreamController<TuringEvent>(sync: true);
     final apiClient = _FakeApiClient();
 
@@ -58,7 +60,7 @@ void main() {
         home: ChatScreen(
           sessionId: 'sess_1',
           apiClient: apiClient,
-          wsClient: _FakeWsClient(events.stream),
+          eventSource: _FakeWsClient(events.stream),
         ),
       ),
     );
@@ -90,7 +92,7 @@ void main() {
         home: ChatScreen(
           sessionId: 'sess_1',
           apiClient: apiClient,
-          wsClient: _FakeWsClient(events.stream),
+          eventSource: _FakeWsClient(events.stream),
         ),
       ),
     );

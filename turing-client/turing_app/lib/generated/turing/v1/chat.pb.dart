@@ -1,0 +1,1542 @@
+//
+//  Generated code. Do not modify.
+//  source: turing/v1/chat.proto
+//
+// @dart = 3.3
+
+// ignore_for_file: annotate_overrides, camel_case_types, comment_references
+// ignore_for_file: constant_identifier_names, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_final_fields
+// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+
+import 'dart:core' as $core;
+
+import 'package:fixnum/fixnum.dart' as $fixnum;
+import 'package:protobuf/protobuf.dart' as $pb;
+
+import '../../google/protobuf/struct.pb.dart' as $6;
+import 'common.pbenum.dart' as $7;
+import 'events.pb.dart' as $2;
+
+export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
+
+class SendMessageRequest extends $pb.GeneratedMessage {
+  factory SendMessageRequest({
+    $core.String? sessionId,
+    $core.String? content,
+    $core.String? contentType,
+    $7.AgentId? agentId,
+    $7.ModelProvider? modelProvider,
+    $core.String? model,
+    $core.String? idempotencyKey,
+  }) {
+    final $result = create();
+    if (sessionId != null) {
+      $result.sessionId = sessionId;
+    }
+    if (content != null) {
+      $result.content = content;
+    }
+    if (contentType != null) {
+      $result.contentType = contentType;
+    }
+    if (agentId != null) {
+      $result.agentId = agentId;
+    }
+    if (modelProvider != null) {
+      $result.modelProvider = modelProvider;
+    }
+    if (model != null) {
+      $result.model = model;
+    }
+    if (idempotencyKey != null) {
+      $result.idempotencyKey = idempotencyKey;
+    }
+    return $result;
+  }
+  SendMessageRequest._() : super();
+  factory SendMessageRequest.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory SendMessageRequest.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SendMessageRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'sessionId')
+    ..aOS(2, _omitFieldNames ? '' : 'content')
+    ..aOS(3, _omitFieldNames ? '' : 'contentType')
+    ..e<$7.AgentId>(4, _omitFieldNames ? '' : 'agentId', $pb.PbFieldType.OE,
+        defaultOrMaker: $7.AgentId.AGENT_ID_UNSPECIFIED,
+        valueOf: $7.AgentId.valueOf,
+        enumValues: $7.AgentId.values)
+    ..e<$7.ModelProvider>(
+        5, _omitFieldNames ? '' : 'modelProvider', $pb.PbFieldType.OE,
+        defaultOrMaker: $7.ModelProvider.MODEL_PROVIDER_UNSPECIFIED,
+        valueOf: $7.ModelProvider.valueOf,
+        enumValues: $7.ModelProvider.values)
+    ..aOS(6, _omitFieldNames ? '' : 'model')
+    ..aOS(7, _omitFieldNames ? '' : 'idempotencyKey')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendMessageRequest clone() => SendMessageRequest()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendMessageRequest copyWith(void Function(SendMessageRequest) updates) =>
+      super.copyWith((message) => updates(message as SendMessageRequest))
+          as SendMessageRequest;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static SendMessageRequest create() => SendMessageRequest._();
+  SendMessageRequest createEmptyInstance() => create();
+  static $pb.PbList<SendMessageRequest> createRepeated() =>
+      $pb.PbList<SendMessageRequest>();
+  @$core.pragma('dart2js:noInline')
+  static SendMessageRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SendMessageRequest>(create);
+  static SendMessageRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get sessionId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set sessionId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasSessionId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSessionId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get content => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set content($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasContent() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearContent() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get contentType => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set contentType($core.String v) {
+    $_setString(2, v);
+  }
+
+  @$pb.TagNumber(3)
+  $core.bool hasContentType() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearContentType() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $7.AgentId get agentId => $_getN(3);
+  @$pb.TagNumber(4)
+  set agentId($7.AgentId v) {
+    $_setField(4, v);
+  }
+
+  @$pb.TagNumber(4)
+  $core.bool hasAgentId() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearAgentId() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $7.ModelProvider get modelProvider => $_getN(4);
+  @$pb.TagNumber(5)
+  set modelProvider($7.ModelProvider v) {
+    $_setField(5, v);
+  }
+
+  @$pb.TagNumber(5)
+  $core.bool hasModelProvider() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearModelProvider() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.String get model => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set model($core.String v) {
+    $_setString(5, v);
+  }
+
+  @$pb.TagNumber(6)
+  $core.bool hasModel() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearModel() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  $core.String get idempotencyKey => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set idempotencyKey($core.String v) {
+    $_setString(6, v);
+  }
+
+  @$pb.TagNumber(7)
+  $core.bool hasIdempotencyKey() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearIdempotencyKey() => $_clearField(7);
+}
+
+class RunQueued extends $pb.GeneratedMessage {
+  factory RunQueued({
+    $core.String? runId,
+    $core.String? jobId,
+    $core.String? traceId,
+  }) {
+    final $result = create();
+    if (runId != null) {
+      $result.runId = runId;
+    }
+    if (jobId != null) {
+      $result.jobId = jobId;
+    }
+    if (traceId != null) {
+      $result.traceId = traceId;
+    }
+    return $result;
+  }
+  RunQueued._() : super();
+  factory RunQueued.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory RunQueued.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RunQueued',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'runId')
+    ..aOS(2, _omitFieldNames ? '' : 'jobId')
+    ..aOS(3, _omitFieldNames ? '' : 'traceId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunQueued clone() => RunQueued()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunQueued copyWith(void Function(RunQueued) updates) =>
+      super.copyWith((message) => updates(message as RunQueued)) as RunQueued;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RunQueued create() => RunQueued._();
+  RunQueued createEmptyInstance() => create();
+  static $pb.PbList<RunQueued> createRepeated() => $pb.PbList<RunQueued>();
+  @$core.pragma('dart2js:noInline')
+  static RunQueued getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<RunQueued>(create);
+  static RunQueued? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get runId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set runId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasRunId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRunId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get jobId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set jobId($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasJobId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearJobId() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get traceId => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set traceId($core.String v) {
+    $_setString(2, v);
+  }
+
+  @$pb.TagNumber(3)
+  $core.bool hasTraceId() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearTraceId() => $_clearField(3);
+}
+
+class RunStarted extends $pb.GeneratedMessage {
+  factory RunStarted({
+    $core.String? runId,
+    $core.String? jobId,
+    $core.int? attempt,
+  }) {
+    final $result = create();
+    if (runId != null) {
+      $result.runId = runId;
+    }
+    if (jobId != null) {
+      $result.jobId = jobId;
+    }
+    if (attempt != null) {
+      $result.attempt = attempt;
+    }
+    return $result;
+  }
+  RunStarted._() : super();
+  factory RunStarted.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory RunStarted.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RunStarted',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'runId')
+    ..aOS(2, _omitFieldNames ? '' : 'jobId')
+    ..a<$core.int>(3, _omitFieldNames ? '' : 'attempt', $pb.PbFieldType.O3)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunStarted clone() => RunStarted()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunStarted copyWith(void Function(RunStarted) updates) =>
+      super.copyWith((message) => updates(message as RunStarted)) as RunStarted;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RunStarted create() => RunStarted._();
+  RunStarted createEmptyInstance() => create();
+  static $pb.PbList<RunStarted> createRepeated() => $pb.PbList<RunStarted>();
+  @$core.pragma('dart2js:noInline')
+  static RunStarted getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RunStarted>(create);
+  static RunStarted? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get runId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set runId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasRunId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRunId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get jobId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set jobId($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasJobId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearJobId() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.int get attempt => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set attempt($core.int v) {
+    $_setSignedInt32(2, v);
+  }
+
+  @$pb.TagNumber(3)
+  $core.bool hasAttempt() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAttempt() => $_clearField(3);
+}
+
+class MessageStarted extends $pb.GeneratedMessage {
+  factory MessageStarted({
+    $core.String? messageId,
+    $7.MessageRole? role,
+  }) {
+    final $result = create();
+    if (messageId != null) {
+      $result.messageId = messageId;
+    }
+    if (role != null) {
+      $result.role = role;
+    }
+    return $result;
+  }
+  MessageStarted._() : super();
+  factory MessageStarted.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory MessageStarted.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'MessageStarted',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'messageId')
+    ..e<$7.MessageRole>(2, _omitFieldNames ? '' : 'role', $pb.PbFieldType.OE,
+        defaultOrMaker: $7.MessageRole.MESSAGE_ROLE_UNSPECIFIED,
+        valueOf: $7.MessageRole.valueOf,
+        enumValues: $7.MessageRole.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageStarted clone() => MessageStarted()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageStarted copyWith(void Function(MessageStarted) updates) =>
+      super.copyWith((message) => updates(message as MessageStarted))
+          as MessageStarted;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static MessageStarted create() => MessageStarted._();
+  MessageStarted createEmptyInstance() => create();
+  static $pb.PbList<MessageStarted> createRepeated() =>
+      $pb.PbList<MessageStarted>();
+  @$core.pragma('dart2js:noInline')
+  static MessageStarted getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<MessageStarted>(create);
+  static MessageStarted? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get messageId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set messageId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasMessageId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMessageId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $7.MessageRole get role => $_getN(1);
+  @$pb.TagNumber(2)
+  set role($7.MessageRole v) {
+    $_setField(2, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasRole() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRole() => $_clearField(2);
+}
+
+class TokenDelta extends $pb.GeneratedMessage {
+  factory TokenDelta({
+    $core.String? messageId,
+    $core.String? delta,
+  }) {
+    final $result = create();
+    if (messageId != null) {
+      $result.messageId = messageId;
+    }
+    if (delta != null) {
+      $result.delta = delta;
+    }
+    return $result;
+  }
+  TokenDelta._() : super();
+  factory TokenDelta.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory TokenDelta.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TokenDelta',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'messageId')
+    ..aOS(2, _omitFieldNames ? '' : 'delta')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TokenDelta clone() => TokenDelta()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TokenDelta copyWith(void Function(TokenDelta) updates) =>
+      super.copyWith((message) => updates(message as TokenDelta)) as TokenDelta;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static TokenDelta create() => TokenDelta._();
+  TokenDelta createEmptyInstance() => create();
+  static $pb.PbList<TokenDelta> createRepeated() => $pb.PbList<TokenDelta>();
+  @$core.pragma('dart2js:noInline')
+  static TokenDelta getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<TokenDelta>(create);
+  static TokenDelta? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get messageId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set messageId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasMessageId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMessageId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get delta => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set delta($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasDelta() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearDelta() => $_clearField(2);
+}
+
+class ToolEvent extends $pb.GeneratedMessage {
+  factory ToolEvent({
+    $core.String? toolCallId,
+    $core.String? serverName,
+    $core.String? toolName,
+    $6.Struct? payload,
+  }) {
+    final $result = create();
+    if (toolCallId != null) {
+      $result.toolCallId = toolCallId;
+    }
+    if (serverName != null) {
+      $result.serverName = serverName;
+    }
+    if (toolName != null) {
+      $result.toolName = toolName;
+    }
+    if (payload != null) {
+      $result.payload = payload;
+    }
+    return $result;
+  }
+  ToolEvent._() : super();
+  factory ToolEvent.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory ToolEvent.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ToolEvent',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'toolCallId')
+    ..aOS(2, _omitFieldNames ? '' : 'serverName')
+    ..aOS(3, _omitFieldNames ? '' : 'toolName')
+    ..aOM<$6.Struct>(4, _omitFieldNames ? '' : 'payload',
+        subBuilder: $6.Struct.create)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ToolEvent clone() => ToolEvent()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ToolEvent copyWith(void Function(ToolEvent) updates) =>
+      super.copyWith((message) => updates(message as ToolEvent)) as ToolEvent;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ToolEvent create() => ToolEvent._();
+  ToolEvent createEmptyInstance() => create();
+  static $pb.PbList<ToolEvent> createRepeated() => $pb.PbList<ToolEvent>();
+  @$core.pragma('dart2js:noInline')
+  static ToolEvent getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ToolEvent>(create);
+  static ToolEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get toolCallId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set toolCallId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasToolCallId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearToolCallId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get serverName => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set serverName($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasServerName() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearServerName() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get toolName => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set toolName($core.String v) {
+    $_setString(2, v);
+  }
+
+  @$pb.TagNumber(3)
+  $core.bool hasToolName() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearToolName() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $6.Struct get payload => $_getN(3);
+  @$pb.TagNumber(4)
+  set payload($6.Struct v) {
+    $_setField(4, v);
+  }
+
+  @$pb.TagNumber(4)
+  $core.bool hasPayload() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPayload() => $_clearField(4);
+  @$pb.TagNumber(4)
+  $6.Struct ensurePayload() => $_ensure(3);
+}
+
+class ApprovalEvent extends $pb.GeneratedMessage {
+  factory ApprovalEvent({
+    $core.String? approvalId,
+    $core.String? toolName,
+    $core.String? argsSummary,
+  }) {
+    final $result = create();
+    if (approvalId != null) {
+      $result.approvalId = approvalId;
+    }
+    if (toolName != null) {
+      $result.toolName = toolName;
+    }
+    if (argsSummary != null) {
+      $result.argsSummary = argsSummary;
+    }
+    return $result;
+  }
+  ApprovalEvent._() : super();
+  factory ApprovalEvent.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory ApprovalEvent.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ApprovalEvent',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'approvalId')
+    ..aOS(2, _omitFieldNames ? '' : 'toolName')
+    ..aOS(3, _omitFieldNames ? '' : 'argsSummary')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ApprovalEvent clone() => ApprovalEvent()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ApprovalEvent copyWith(void Function(ApprovalEvent) updates) =>
+      super.copyWith((message) => updates(message as ApprovalEvent))
+          as ApprovalEvent;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ApprovalEvent create() => ApprovalEvent._();
+  ApprovalEvent createEmptyInstance() => create();
+  static $pb.PbList<ApprovalEvent> createRepeated() =>
+      $pb.PbList<ApprovalEvent>();
+  @$core.pragma('dart2js:noInline')
+  static ApprovalEvent getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ApprovalEvent>(create);
+  static ApprovalEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get approvalId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set approvalId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasApprovalId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearApprovalId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get toolName => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set toolName($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasToolName() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearToolName() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get argsSummary => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set argsSummary($core.String v) {
+    $_setString(2, v);
+  }
+
+  @$pb.TagNumber(3)
+  $core.bool hasArgsSummary() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearArgsSummary() => $_clearField(3);
+}
+
+class MessageCompleted extends $pb.GeneratedMessage {
+  factory MessageCompleted({
+    $core.String? messageId,
+    $core.String? content,
+  }) {
+    final $result = create();
+    if (messageId != null) {
+      $result.messageId = messageId;
+    }
+    if (content != null) {
+      $result.content = content;
+    }
+    return $result;
+  }
+  MessageCompleted._() : super();
+  factory MessageCompleted.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory MessageCompleted.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'MessageCompleted',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'messageId')
+    ..aOS(2, _omitFieldNames ? '' : 'content')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageCompleted clone() => MessageCompleted()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageCompleted copyWith(void Function(MessageCompleted) updates) =>
+      super.copyWith((message) => updates(message as MessageCompleted))
+          as MessageCompleted;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static MessageCompleted create() => MessageCompleted._();
+  MessageCompleted createEmptyInstance() => create();
+  static $pb.PbList<MessageCompleted> createRepeated() =>
+      $pb.PbList<MessageCompleted>();
+  @$core.pragma('dart2js:noInline')
+  static MessageCompleted getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<MessageCompleted>(create);
+  static MessageCompleted? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get messageId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set messageId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasMessageId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMessageId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get content => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set content($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasContent() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearContent() => $_clearField(2);
+}
+
+class RunCompleted extends $pb.GeneratedMessage {
+  factory RunCompleted({
+    $core.String? runId,
+    $core.String? assistantMessageId,
+  }) {
+    final $result = create();
+    if (runId != null) {
+      $result.runId = runId;
+    }
+    if (assistantMessageId != null) {
+      $result.assistantMessageId = assistantMessageId;
+    }
+    return $result;
+  }
+  RunCompleted._() : super();
+  factory RunCompleted.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory RunCompleted.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RunCompleted',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'runId')
+    ..aOS(2, _omitFieldNames ? '' : 'assistantMessageId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunCompleted clone() => RunCompleted()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunCompleted copyWith(void Function(RunCompleted) updates) =>
+      super.copyWith((message) => updates(message as RunCompleted))
+          as RunCompleted;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RunCompleted create() => RunCompleted._();
+  RunCompleted createEmptyInstance() => create();
+  static $pb.PbList<RunCompleted> createRepeated() =>
+      $pb.PbList<RunCompleted>();
+  @$core.pragma('dart2js:noInline')
+  static RunCompleted getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RunCompleted>(create);
+  static RunCompleted? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get runId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set runId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasRunId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRunId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get assistantMessageId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set assistantMessageId($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasAssistantMessageId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearAssistantMessageId() => $_clearField(2);
+}
+
+class RunFailed extends $pb.GeneratedMessage {
+  factory RunFailed({
+    $core.String? runId,
+    $core.String? code,
+    $core.String? message,
+    $core.bool? retryable,
+  }) {
+    final $result = create();
+    if (runId != null) {
+      $result.runId = runId;
+    }
+    if (code != null) {
+      $result.code = code;
+    }
+    if (message != null) {
+      $result.message = message;
+    }
+    if (retryable != null) {
+      $result.retryable = retryable;
+    }
+    return $result;
+  }
+  RunFailed._() : super();
+  factory RunFailed.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory RunFailed.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RunFailed',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'runId')
+    ..aOS(2, _omitFieldNames ? '' : 'code')
+    ..aOS(3, _omitFieldNames ? '' : 'message')
+    ..aOB(4, _omitFieldNames ? '' : 'retryable')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunFailed clone() => RunFailed()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunFailed copyWith(void Function(RunFailed) updates) =>
+      super.copyWith((message) => updates(message as RunFailed)) as RunFailed;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RunFailed create() => RunFailed._();
+  RunFailed createEmptyInstance() => create();
+  static $pb.PbList<RunFailed> createRepeated() => $pb.PbList<RunFailed>();
+  @$core.pragma('dart2js:noInline')
+  static RunFailed getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<RunFailed>(create);
+  static RunFailed? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get runId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set runId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasRunId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRunId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get code => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set code($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasCode() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCode() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get message => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set message($core.String v) {
+    $_setString(2, v);
+  }
+
+  @$pb.TagNumber(3)
+  $core.bool hasMessage() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearMessage() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.bool get retryable => $_getBF(3);
+  @$pb.TagNumber(4)
+  set retryable($core.bool v) {
+    $_setBool(3, v);
+  }
+
+  @$pb.TagNumber(4)
+  $core.bool hasRetryable() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearRetryable() => $_clearField(4);
+}
+
+class RunCancelled extends $pb.GeneratedMessage {
+  factory RunCancelled({
+    $core.String? runId,
+    $core.String? reason,
+  }) {
+    final $result = create();
+    if (runId != null) {
+      $result.runId = runId;
+    }
+    if (reason != null) {
+      $result.reason = reason;
+    }
+    return $result;
+  }
+  RunCancelled._() : super();
+  factory RunCancelled.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory RunCancelled.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RunCancelled',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'runId')
+    ..aOS(2, _omitFieldNames ? '' : 'reason')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunCancelled clone() => RunCancelled()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RunCancelled copyWith(void Function(RunCancelled) updates) =>
+      super.copyWith((message) => updates(message as RunCancelled))
+          as RunCancelled;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RunCancelled create() => RunCancelled._();
+  RunCancelled createEmptyInstance() => create();
+  static $pb.PbList<RunCancelled> createRepeated() =>
+      $pb.PbList<RunCancelled>();
+  @$core.pragma('dart2js:noInline')
+  static RunCancelled getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RunCancelled>(create);
+  static RunCancelled? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get runId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set runId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasRunId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRunId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get reason => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set reason($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasReason() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearReason() => $_clearField(2);
+}
+
+enum ChatStreamEvent_Event {
+  runQueued,
+  runStarted,
+  messageStarted,
+  tokenDelta,
+  toolCallStarted,
+  toolCallCompleted,
+  toolCallFailed,
+  approvalRequested,
+  approvalApproved,
+  approvalDenied,
+  approvalExpired,
+  approvalConsumed,
+  messageCompleted,
+  runCompleted,
+  runFailed,
+  runCancelled,
+  persistedEvent,
+  notSet
+}
+
+class ChatStreamEvent extends $pb.GeneratedMessage {
+  factory ChatStreamEvent({
+    $core.String? sessionId,
+    $core.String? runId,
+    $core.String? traceId,
+    $fixnum.Int64? sequence,
+    RunQueued? runQueued,
+    RunStarted? runStarted,
+    MessageStarted? messageStarted,
+    TokenDelta? tokenDelta,
+    ToolEvent? toolCallStarted,
+    ToolEvent? toolCallCompleted,
+    ToolEvent? toolCallFailed,
+    ApprovalEvent? approvalRequested,
+    ApprovalEvent? approvalApproved,
+    ApprovalEvent? approvalDenied,
+    ApprovalEvent? approvalExpired,
+    ApprovalEvent? approvalConsumed,
+    MessageCompleted? messageCompleted,
+    RunCompleted? runCompleted,
+    RunFailed? runFailed,
+    RunCancelled? runCancelled,
+    $2.TuringEvent? persistedEvent,
+  }) {
+    final $result = create();
+    if (sessionId != null) {
+      $result.sessionId = sessionId;
+    }
+    if (runId != null) {
+      $result.runId = runId;
+    }
+    if (traceId != null) {
+      $result.traceId = traceId;
+    }
+    if (sequence != null) {
+      $result.sequence = sequence;
+    }
+    if (runQueued != null) {
+      $result.runQueued = runQueued;
+    }
+    if (runStarted != null) {
+      $result.runStarted = runStarted;
+    }
+    if (messageStarted != null) {
+      $result.messageStarted = messageStarted;
+    }
+    if (tokenDelta != null) {
+      $result.tokenDelta = tokenDelta;
+    }
+    if (toolCallStarted != null) {
+      $result.toolCallStarted = toolCallStarted;
+    }
+    if (toolCallCompleted != null) {
+      $result.toolCallCompleted = toolCallCompleted;
+    }
+    if (toolCallFailed != null) {
+      $result.toolCallFailed = toolCallFailed;
+    }
+    if (approvalRequested != null) {
+      $result.approvalRequested = approvalRequested;
+    }
+    if (approvalApproved != null) {
+      $result.approvalApproved = approvalApproved;
+    }
+    if (approvalDenied != null) {
+      $result.approvalDenied = approvalDenied;
+    }
+    if (approvalExpired != null) {
+      $result.approvalExpired = approvalExpired;
+    }
+    if (approvalConsumed != null) {
+      $result.approvalConsumed = approvalConsumed;
+    }
+    if (messageCompleted != null) {
+      $result.messageCompleted = messageCompleted;
+    }
+    if (runCompleted != null) {
+      $result.runCompleted = runCompleted;
+    }
+    if (runFailed != null) {
+      $result.runFailed = runFailed;
+    }
+    if (runCancelled != null) {
+      $result.runCancelled = runCancelled;
+    }
+    if (persistedEvent != null) {
+      $result.persistedEvent = persistedEvent;
+    }
+    return $result;
+  }
+  ChatStreamEvent._() : super();
+  factory ChatStreamEvent.fromBuffer($core.List<$core.int> i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(i, r);
+  factory ChatStreamEvent.fromJson($core.String i,
+          [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(i, r);
+
+  static const $core.Map<$core.int, ChatStreamEvent_Event>
+      _ChatStreamEvent_EventByTag = {
+    10: ChatStreamEvent_Event.runQueued,
+    11: ChatStreamEvent_Event.runStarted,
+    12: ChatStreamEvent_Event.messageStarted,
+    13: ChatStreamEvent_Event.tokenDelta,
+    14: ChatStreamEvent_Event.toolCallStarted,
+    15: ChatStreamEvent_Event.toolCallCompleted,
+    16: ChatStreamEvent_Event.toolCallFailed,
+    17: ChatStreamEvent_Event.approvalRequested,
+    18: ChatStreamEvent_Event.approvalApproved,
+    19: ChatStreamEvent_Event.approvalDenied,
+    20: ChatStreamEvent_Event.approvalExpired,
+    21: ChatStreamEvent_Event.approvalConsumed,
+    22: ChatStreamEvent_Event.messageCompleted,
+    23: ChatStreamEvent_Event.runCompleted,
+    24: ChatStreamEvent_Event.runFailed,
+    25: ChatStreamEvent_Event.runCancelled,
+    26: ChatStreamEvent_Event.persistedEvent,
+    0: ChatStreamEvent_Event.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ChatStreamEvent',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'turing.v1'),
+      createEmptyInstance: create)
+    ..oo(
+        0, [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26])
+    ..aOS(1, _omitFieldNames ? '' : 'sessionId')
+    ..aOS(2, _omitFieldNames ? '' : 'runId')
+    ..aOS(3, _omitFieldNames ? '' : 'traceId')
+    ..aInt64(4, _omitFieldNames ? '' : 'sequence')
+    ..aOM<RunQueued>(10, _omitFieldNames ? '' : 'runQueued',
+        subBuilder: RunQueued.create)
+    ..aOM<RunStarted>(11, _omitFieldNames ? '' : 'runStarted',
+        subBuilder: RunStarted.create)
+    ..aOM<MessageStarted>(12, _omitFieldNames ? '' : 'messageStarted',
+        subBuilder: MessageStarted.create)
+    ..aOM<TokenDelta>(13, _omitFieldNames ? '' : 'tokenDelta',
+        subBuilder: TokenDelta.create)
+    ..aOM<ToolEvent>(14, _omitFieldNames ? '' : 'toolCallStarted',
+        subBuilder: ToolEvent.create)
+    ..aOM<ToolEvent>(15, _omitFieldNames ? '' : 'toolCallCompleted',
+        subBuilder: ToolEvent.create)
+    ..aOM<ToolEvent>(16, _omitFieldNames ? '' : 'toolCallFailed',
+        subBuilder: ToolEvent.create)
+    ..aOM<ApprovalEvent>(17, _omitFieldNames ? '' : 'approvalRequested',
+        subBuilder: ApprovalEvent.create)
+    ..aOM<ApprovalEvent>(18, _omitFieldNames ? '' : 'approvalApproved',
+        subBuilder: ApprovalEvent.create)
+    ..aOM<ApprovalEvent>(19, _omitFieldNames ? '' : 'approvalDenied',
+        subBuilder: ApprovalEvent.create)
+    ..aOM<ApprovalEvent>(20, _omitFieldNames ? '' : 'approvalExpired',
+        subBuilder: ApprovalEvent.create)
+    ..aOM<ApprovalEvent>(21, _omitFieldNames ? '' : 'approvalConsumed',
+        subBuilder: ApprovalEvent.create)
+    ..aOM<MessageCompleted>(22, _omitFieldNames ? '' : 'messageCompleted',
+        subBuilder: MessageCompleted.create)
+    ..aOM<RunCompleted>(23, _omitFieldNames ? '' : 'runCompleted',
+        subBuilder: RunCompleted.create)
+    ..aOM<RunFailed>(24, _omitFieldNames ? '' : 'runFailed',
+        subBuilder: RunFailed.create)
+    ..aOM<RunCancelled>(25, _omitFieldNames ? '' : 'runCancelled',
+        subBuilder: RunCancelled.create)
+    ..aOM<$2.TuringEvent>(26, _omitFieldNames ? '' : 'persistedEvent',
+        subBuilder: $2.TuringEvent.create)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ChatStreamEvent clone() => ChatStreamEvent()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ChatStreamEvent copyWith(void Function(ChatStreamEvent) updates) =>
+      super.copyWith((message) => updates(message as ChatStreamEvent))
+          as ChatStreamEvent;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ChatStreamEvent create() => ChatStreamEvent._();
+  ChatStreamEvent createEmptyInstance() => create();
+  static $pb.PbList<ChatStreamEvent> createRepeated() =>
+      $pb.PbList<ChatStreamEvent>();
+  @$core.pragma('dart2js:noInline')
+  static ChatStreamEvent getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ChatStreamEvent>(create);
+  static ChatStreamEvent? _defaultInstance;
+
+  ChatStreamEvent_Event whichEvent() =>
+      _ChatStreamEvent_EventByTag[$_whichOneof(0)]!;
+  void clearEvent() => $_clearField($_whichOneof(0));
+
+  @$pb.TagNumber(1)
+  $core.String get sessionId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set sessionId($core.String v) {
+    $_setString(0, v);
+  }
+
+  @$pb.TagNumber(1)
+  $core.bool hasSessionId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSessionId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get runId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set runId($core.String v) {
+    $_setString(1, v);
+  }
+
+  @$pb.TagNumber(2)
+  $core.bool hasRunId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRunId() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get traceId => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set traceId($core.String v) {
+    $_setString(2, v);
+  }
+
+  @$pb.TagNumber(3)
+  $core.bool hasTraceId() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearTraceId() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get sequence => $_getI64(3);
+  @$pb.TagNumber(4)
+  set sequence($fixnum.Int64 v) {
+    $_setInt64(3, v);
+  }
+
+  @$pb.TagNumber(4)
+  $core.bool hasSequence() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSequence() => $_clearField(4);
+
+  @$pb.TagNumber(10)
+  RunQueued get runQueued => $_getN(4);
+  @$pb.TagNumber(10)
+  set runQueued(RunQueued v) {
+    $_setField(10, v);
+  }
+
+  @$pb.TagNumber(10)
+  $core.bool hasRunQueued() => $_has(4);
+  @$pb.TagNumber(10)
+  void clearRunQueued() => $_clearField(10);
+  @$pb.TagNumber(10)
+  RunQueued ensureRunQueued() => $_ensure(4);
+
+  @$pb.TagNumber(11)
+  RunStarted get runStarted => $_getN(5);
+  @$pb.TagNumber(11)
+  set runStarted(RunStarted v) {
+    $_setField(11, v);
+  }
+
+  @$pb.TagNumber(11)
+  $core.bool hasRunStarted() => $_has(5);
+  @$pb.TagNumber(11)
+  void clearRunStarted() => $_clearField(11);
+  @$pb.TagNumber(11)
+  RunStarted ensureRunStarted() => $_ensure(5);
+
+  @$pb.TagNumber(12)
+  MessageStarted get messageStarted => $_getN(6);
+  @$pb.TagNumber(12)
+  set messageStarted(MessageStarted v) {
+    $_setField(12, v);
+  }
+
+  @$pb.TagNumber(12)
+  $core.bool hasMessageStarted() => $_has(6);
+  @$pb.TagNumber(12)
+  void clearMessageStarted() => $_clearField(12);
+  @$pb.TagNumber(12)
+  MessageStarted ensureMessageStarted() => $_ensure(6);
+
+  @$pb.TagNumber(13)
+  TokenDelta get tokenDelta => $_getN(7);
+  @$pb.TagNumber(13)
+  set tokenDelta(TokenDelta v) {
+    $_setField(13, v);
+  }
+
+  @$pb.TagNumber(13)
+  $core.bool hasTokenDelta() => $_has(7);
+  @$pb.TagNumber(13)
+  void clearTokenDelta() => $_clearField(13);
+  @$pb.TagNumber(13)
+  TokenDelta ensureTokenDelta() => $_ensure(7);
+
+  @$pb.TagNumber(14)
+  ToolEvent get toolCallStarted => $_getN(8);
+  @$pb.TagNumber(14)
+  set toolCallStarted(ToolEvent v) {
+    $_setField(14, v);
+  }
+
+  @$pb.TagNumber(14)
+  $core.bool hasToolCallStarted() => $_has(8);
+  @$pb.TagNumber(14)
+  void clearToolCallStarted() => $_clearField(14);
+  @$pb.TagNumber(14)
+  ToolEvent ensureToolCallStarted() => $_ensure(8);
+
+  @$pb.TagNumber(15)
+  ToolEvent get toolCallCompleted => $_getN(9);
+  @$pb.TagNumber(15)
+  set toolCallCompleted(ToolEvent v) {
+    $_setField(15, v);
+  }
+
+  @$pb.TagNumber(15)
+  $core.bool hasToolCallCompleted() => $_has(9);
+  @$pb.TagNumber(15)
+  void clearToolCallCompleted() => $_clearField(15);
+  @$pb.TagNumber(15)
+  ToolEvent ensureToolCallCompleted() => $_ensure(9);
+
+  @$pb.TagNumber(16)
+  ToolEvent get toolCallFailed => $_getN(10);
+  @$pb.TagNumber(16)
+  set toolCallFailed(ToolEvent v) {
+    $_setField(16, v);
+  }
+
+  @$pb.TagNumber(16)
+  $core.bool hasToolCallFailed() => $_has(10);
+  @$pb.TagNumber(16)
+  void clearToolCallFailed() => $_clearField(16);
+  @$pb.TagNumber(16)
+  ToolEvent ensureToolCallFailed() => $_ensure(10);
+
+  @$pb.TagNumber(17)
+  ApprovalEvent get approvalRequested => $_getN(11);
+  @$pb.TagNumber(17)
+  set approvalRequested(ApprovalEvent v) {
+    $_setField(17, v);
+  }
+
+  @$pb.TagNumber(17)
+  $core.bool hasApprovalRequested() => $_has(11);
+  @$pb.TagNumber(17)
+  void clearApprovalRequested() => $_clearField(17);
+  @$pb.TagNumber(17)
+  ApprovalEvent ensureApprovalRequested() => $_ensure(11);
+
+  @$pb.TagNumber(18)
+  ApprovalEvent get approvalApproved => $_getN(12);
+  @$pb.TagNumber(18)
+  set approvalApproved(ApprovalEvent v) {
+    $_setField(18, v);
+  }
+
+  @$pb.TagNumber(18)
+  $core.bool hasApprovalApproved() => $_has(12);
+  @$pb.TagNumber(18)
+  void clearApprovalApproved() => $_clearField(18);
+  @$pb.TagNumber(18)
+  ApprovalEvent ensureApprovalApproved() => $_ensure(12);
+
+  @$pb.TagNumber(19)
+  ApprovalEvent get approvalDenied => $_getN(13);
+  @$pb.TagNumber(19)
+  set approvalDenied(ApprovalEvent v) {
+    $_setField(19, v);
+  }
+
+  @$pb.TagNumber(19)
+  $core.bool hasApprovalDenied() => $_has(13);
+  @$pb.TagNumber(19)
+  void clearApprovalDenied() => $_clearField(19);
+  @$pb.TagNumber(19)
+  ApprovalEvent ensureApprovalDenied() => $_ensure(13);
+
+  @$pb.TagNumber(20)
+  ApprovalEvent get approvalExpired => $_getN(14);
+  @$pb.TagNumber(20)
+  set approvalExpired(ApprovalEvent v) {
+    $_setField(20, v);
+  }
+
+  @$pb.TagNumber(20)
+  $core.bool hasApprovalExpired() => $_has(14);
+  @$pb.TagNumber(20)
+  void clearApprovalExpired() => $_clearField(20);
+  @$pb.TagNumber(20)
+  ApprovalEvent ensureApprovalExpired() => $_ensure(14);
+
+  @$pb.TagNumber(21)
+  ApprovalEvent get approvalConsumed => $_getN(15);
+  @$pb.TagNumber(21)
+  set approvalConsumed(ApprovalEvent v) {
+    $_setField(21, v);
+  }
+
+  @$pb.TagNumber(21)
+  $core.bool hasApprovalConsumed() => $_has(15);
+  @$pb.TagNumber(21)
+  void clearApprovalConsumed() => $_clearField(21);
+  @$pb.TagNumber(21)
+  ApprovalEvent ensureApprovalConsumed() => $_ensure(15);
+
+  @$pb.TagNumber(22)
+  MessageCompleted get messageCompleted => $_getN(16);
+  @$pb.TagNumber(22)
+  set messageCompleted(MessageCompleted v) {
+    $_setField(22, v);
+  }
+
+  @$pb.TagNumber(22)
+  $core.bool hasMessageCompleted() => $_has(16);
+  @$pb.TagNumber(22)
+  void clearMessageCompleted() => $_clearField(22);
+  @$pb.TagNumber(22)
+  MessageCompleted ensureMessageCompleted() => $_ensure(16);
+
+  @$pb.TagNumber(23)
+  RunCompleted get runCompleted => $_getN(17);
+  @$pb.TagNumber(23)
+  set runCompleted(RunCompleted v) {
+    $_setField(23, v);
+  }
+
+  @$pb.TagNumber(23)
+  $core.bool hasRunCompleted() => $_has(17);
+  @$pb.TagNumber(23)
+  void clearRunCompleted() => $_clearField(23);
+  @$pb.TagNumber(23)
+  RunCompleted ensureRunCompleted() => $_ensure(17);
+
+  @$pb.TagNumber(24)
+  RunFailed get runFailed => $_getN(18);
+  @$pb.TagNumber(24)
+  set runFailed(RunFailed v) {
+    $_setField(24, v);
+  }
+
+  @$pb.TagNumber(24)
+  $core.bool hasRunFailed() => $_has(18);
+  @$pb.TagNumber(24)
+  void clearRunFailed() => $_clearField(24);
+  @$pb.TagNumber(24)
+  RunFailed ensureRunFailed() => $_ensure(18);
+
+  @$pb.TagNumber(25)
+  RunCancelled get runCancelled => $_getN(19);
+  @$pb.TagNumber(25)
+  set runCancelled(RunCancelled v) {
+    $_setField(25, v);
+  }
+
+  @$pb.TagNumber(25)
+  $core.bool hasRunCancelled() => $_has(19);
+  @$pb.TagNumber(25)
+  void clearRunCancelled() => $_clearField(25);
+  @$pb.TagNumber(25)
+  RunCancelled ensureRunCancelled() => $_ensure(19);
+
+  @$pb.TagNumber(26)
+  $2.TuringEvent get persistedEvent => $_getN(20);
+  @$pb.TagNumber(26)
+  set persistedEvent($2.TuringEvent v) {
+    $_setField(26, v);
+  }
+
+  @$pb.TagNumber(26)
+  $core.bool hasPersistedEvent() => $_has(20);
+  @$pb.TagNumber(26)
+  void clearPersistedEvent() => $_clearField(26);
+  @$pb.TagNumber(26)
+  $2.TuringEvent ensurePersistedEvent() => $_ensure(20);
+}
+
+const _omitFieldNames = $core.bool.fromEnvironment('protobuf.omit_field_names');
+const _omitMessageNames =
+    $core.bool.fromEnvironment('protobuf.omit_message_names');

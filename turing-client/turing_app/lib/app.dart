@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'constants/app_colors.dart';
@@ -5,13 +7,30 @@ import 'features/settings/settings_screen.dart';
 import 'logic/theme_logic.dart';
 import 'networking/api_client.dart';
 import 'networking/auth_storage.dart';
+import 'networking/grpc_client.dart';
+import 'networking/grpc_event_source.dart';
 import 'networking/ws_client.dart';
 import 'ui/shell/responsive_shell.dart';
 
+typedef TuringApiFactory =
+    TuringApi Function({required String baseUrl, required String apiKey});
+typedef TuringEventSourceFactory =
+    TuringEventSource Function({
+      required String baseUrl,
+      required String apiKey,
+    });
+
 class TuringApp extends StatefulWidget {
-  const TuringApp({super.key, this.authStorage = const AuthStorage()});
+  const TuringApp({
+    super.key,
+    this.authStorage = const AuthStorage(),
+    this.apiFactory = _createGrpcApi,
+    this.eventSourceFactory = _createGrpcEventSource,
+  });
 
   final ClientAuthStorage authStorage;
+  final TuringApiFactory apiFactory;
+  final TuringEventSourceFactory eventSourceFactory;
 
   @override
   State<TuringApp> createState() => _TuringAppState();
@@ -58,20 +77,12 @@ class _TuringAppState extends State<TuringApp> {
                 );
               }
 
-              final apiClient = TuringApiClient(
-                baseUrl: config.backendUrl,
-                apiKey: config.apiKey,
-              );
-              return ResponsiveShell(
-                apiClient: apiClient,
+              return _ConfiguredTuringShell(
+                config: config,
                 authStorage: widget.authStorage,
-                initialBackendUrl: config.backendUrl,
-                initialApiKey: config.apiKey,
                 onSettingsChanged: _reloadConfig,
-                wsClientFactory: () => TuringWsClient(
-                  baseUrl: config.backendUrl,
-                  apiKey: config.apiKey,
-                ),
+                apiFactory: widget.apiFactory,
+                eventSourceFactory: widget.eventSourceFactory,
               );
             },
           ),
@@ -168,4 +179,89 @@ class _ClientConfig {
 
   final String backendUrl;
   final String apiKey;
+}
+
+class _ConfiguredTuringShell extends StatefulWidget {
+  const _ConfiguredTuringShell({
+    required this.config,
+    required this.authStorage,
+    required this.onSettingsChanged,
+    required this.apiFactory,
+    required this.eventSourceFactory,
+  });
+
+  final _ClientConfig config;
+  final ClientAuthStorage authStorage;
+  final VoidCallback onSettingsChanged;
+  final TuringApiFactory apiFactory;
+  final TuringEventSourceFactory eventSourceFactory;
+
+  @override
+  State<_ConfiguredTuringShell> createState() => _ConfiguredTuringShellState();
+}
+
+class _ConfiguredTuringShellState extends State<_ConfiguredTuringShell> {
+  late TuringApi _apiClient;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _createApiClient();
+  }
+
+  @override
+  void didUpdateWidget(_ConfiguredTuringShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.config.backendUrl != widget.config.backendUrl ||
+        oldWidget.config.apiKey != widget.config.apiKey ||
+        oldWidget.apiFactory != widget.apiFactory) {
+      _closeApiClient(_apiClient);
+      _apiClient = _createApiClient();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ResponsiveShell(
+      apiClient: _apiClient,
+      authStorage: widget.authStorage,
+      initialBackendUrl: widget.config.backendUrl,
+      initialApiKey: widget.config.apiKey,
+      onSettingsChanged: widget.onSettingsChanged,
+      eventSourceFactory: () => widget.eventSourceFactory(
+        baseUrl: widget.config.backendUrl,
+        apiKey: widget.config.apiKey,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _closeApiClient(_apiClient);
+    super.dispose();
+  }
+
+  TuringApi _createApiClient() {
+    return widget.apiFactory(
+      baseUrl: widget.config.backendUrl,
+      apiKey: widget.config.apiKey,
+    );
+  }
+
+  void _closeApiClient(TuringApi apiClient) {
+    if (apiClient is ClosableTuringApi) {
+      unawaited(apiClient.close());
+    }
+  }
+}
+
+TuringApi _createGrpcApi({required String baseUrl, required String apiKey}) {
+  return TuringGrpcApi(baseUrl: baseUrl, apiKey: apiKey);
+}
+
+TuringEventSource _createGrpcEventSource({
+  required String baseUrl,
+  required String apiKey,
+}) {
+  return TuringGrpcEventSource(baseUrl: baseUrl, apiKey: apiKey);
 }

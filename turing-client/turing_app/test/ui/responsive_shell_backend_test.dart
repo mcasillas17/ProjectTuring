@@ -23,7 +23,7 @@ void main() {
         MaterialApp(
           home: ResponsiveShell(
             apiClient: _FakeApiClient(),
-            wsClientFactory: () => _FakeWsClient(),
+            eventSourceFactory: () => _FakeWsClient(),
             authStorage: _FakeAuthStorage(),
             initialBackendUrl: 'http://localhost:3000',
             initialApiKey: 'tk_test',

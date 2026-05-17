@@ -11,7 +11,7 @@ class SessionListScreen extends StatefulWidget {
   const SessionListScreen({
     super.key,
     required this.apiClient,
-    required this.wsClientFactory,
+    required this.eventSourceFactory,
     this.authStorage,
     this.onSettingsChanged,
     this.initialBackendUrl = 'http://localhost:3000',
@@ -20,7 +20,7 @@ class SessionListScreen extends StatefulWidget {
   });
 
   final TuringApi apiClient;
-  final TuringEventSource Function() wsClientFactory;
+  final TuringEventSource Function() eventSourceFactory;
   final ClientAuthStorage? authStorage;
   final VoidCallback? onSettingsChanged;
   final String initialBackendUrl;
@@ -68,7 +68,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
         builder: (_) => ChatScreen(
           sessionId: sessionId,
           apiClient: widget.apiClient,
-          wsClient: widget.wsClientFactory(),
+          eventSource: widget.eventSourceFactory(),
         ),
       ),
     );

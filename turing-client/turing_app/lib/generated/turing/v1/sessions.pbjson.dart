@@ -1,0 +1,296 @@
+//
+//  Generated code. Do not modify.
+//  source: turing/v1/sessions.proto
+//
+// @dart = 3.3
+
+// ignore_for_file: annotate_overrides, camel_case_types, comment_references
+// ignore_for_file: constant_identifier_names, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_final_fields
+// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+
+import 'dart:convert' as $convert;
+import 'dart:core' as $core;
+import 'dart:typed_data' as $typed_data;
+
+@$core.Deprecated('Use sessionDescriptor instead')
+const Session$json = {
+  '1': 'Session',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {'1': 'title', '3': 2, '4': 1, '5': 9, '10': 'title'},
+    {'1': 'status', '3': 3, '4': 1, '5': 9, '10': 'status'},
+    {
+      '1': 'created_at',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'createdAt'
+    },
+    {
+      '1': 'updated_at',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'updatedAt'
+    },
+  ],
+};
+
+/// Descriptor for `Session`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List sessionDescriptor = $convert.base64Decode(
+    'CgdTZXNzaW9uEh0KCnNlc3Npb25faWQYASABKAlSCXNlc3Npb25JZBIUCgV0aXRsZRgCIAEoCV'
+    'IFdGl0bGUSFgoGc3RhdHVzGAMgASgJUgZzdGF0dXMSOQoKY3JlYXRlZF9hdBgEIAEoCzIaLmdv'
+    'b2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCWNyZWF0ZWRBdBI5Cgp1cGRhdGVkX2F0GAUgASgLMh'
+    'ouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIJdXBkYXRlZEF0');
+
+@$core.Deprecated('Use createSessionRequestDescriptor instead')
+const CreateSessionRequest$json = {
+  '1': 'CreateSessionRequest',
+  '2': [
+    {'1': 'title', '3': 1, '4': 1, '5': 9, '10': 'title'},
+  ],
+};
+
+/// Descriptor for `CreateSessionRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List createSessionRequestDescriptor =
+    $convert.base64Decode(
+        'ChRDcmVhdGVTZXNzaW9uUmVxdWVzdBIUCgV0aXRsZRgBIAEoCVIFdGl0bGU=');
+
+@$core.Deprecated('Use createSessionResponseDescriptor instead')
+const CreateSessionResponse$json = {
+  '1': 'CreateSessionResponse',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {
+      '1': 'created_at',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'createdAt'
+    },
+  ],
+};
+
+/// Descriptor for `CreateSessionResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List createSessionResponseDescriptor = $convert.base64Decode(
+    'ChVDcmVhdGVTZXNzaW9uUmVzcG9uc2USHQoKc2Vzc2lvbl9pZBgBIAEoCVIJc2Vzc2lvbklkEj'
+    'kKCmNyZWF0ZWRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgljcmVhdGVk'
+    'QXQ=');
+
+@$core.Deprecated('Use listSessionsRequestDescriptor instead')
+const ListSessionsRequest$json = {
+  '1': 'ListSessionsRequest',
+  '2': [
+    {
+      '1': 'page',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.turing.v1.PageRequest',
+      '10': 'page'
+    },
+  ],
+};
+
+/// Descriptor for `ListSessionsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listSessionsRequestDescriptor = $convert.base64Decode(
+    'ChNMaXN0U2Vzc2lvbnNSZXF1ZXN0EioKBHBhZ2UYASABKAsyFi50dXJpbmcudjEuUGFnZVJlcX'
+    'Vlc3RSBHBhZ2U=');
+
+@$core.Deprecated('Use listSessionsResponseDescriptor instead')
+const ListSessionsResponse$json = {
+  '1': 'ListSessionsResponse',
+  '2': [
+    {
+      '1': 'sessions',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.turing.v1.Session',
+      '10': 'sessions'
+    },
+    {
+      '1': 'page',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.turing.v1.PageResponse',
+      '10': 'page'
+    },
+  ],
+};
+
+/// Descriptor for `ListSessionsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listSessionsResponseDescriptor = $convert.base64Decode(
+    'ChRMaXN0U2Vzc2lvbnNSZXNwb25zZRIuCghzZXNzaW9ucxgBIAMoCzISLnR1cmluZy52MS5TZX'
+    'NzaW9uUghzZXNzaW9ucxIrCgRwYWdlGAIgASgLMhcudHVyaW5nLnYxLlBhZ2VSZXNwb25zZVIE'
+    'cGFnZQ==');
+
+@$core.Deprecated('Use getSessionRequestDescriptor instead')
+const GetSessionRequest$json = {
+  '1': 'GetSessionRequest',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+  ],
+};
+
+/// Descriptor for `GetSessionRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getSessionRequestDescriptor = $convert.base64Decode(
+    'ChFHZXRTZXNzaW9uUmVxdWVzdBIdCgpzZXNzaW9uX2lkGAEgASgJUglzZXNzaW9uSWQ=');
+
+@$core.Deprecated('Use listMessagesRequestDescriptor instead')
+const ListMessagesRequest$json = {
+  '1': 'ListMessagesRequest',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {'1': 'limit', '3': 2, '4': 1, '5': 5, '10': 'limit'},
+  ],
+};
+
+/// Descriptor for `ListMessagesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listMessagesRequestDescriptor = $convert.base64Decode(
+    'ChNMaXN0TWVzc2FnZXNSZXF1ZXN0Eh0KCnNlc3Npb25faWQYASABKAlSCXNlc3Npb25JZBIUCg'
+    'VsaW1pdBgCIAEoBVIFbGltaXQ=');
+
+@$core.Deprecated('Use listMessagesResponseDescriptor instead')
+const ListMessagesResponse$json = {
+  '1': 'ListMessagesResponse',
+  '2': [
+    {
+      '1': 'messages',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.turing.v1.Message',
+      '10': 'messages'
+    },
+  ],
+};
+
+/// Descriptor for `ListMessagesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listMessagesResponseDescriptor = $convert.base64Decode(
+    'ChRMaXN0TWVzc2FnZXNSZXNwb25zZRIuCghtZXNzYWdlcxgBIAMoCzISLnR1cmluZy52MS5NZX'
+    'NzYWdlUghtZXNzYWdlcw==');
+
+@$core.Deprecated('Use getConfigRequestDescriptor instead')
+const GetConfigRequest$json = {
+  '1': 'GetConfigRequest',
+};
+
+/// Descriptor for `GetConfigRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getConfigRequestDescriptor =
+    $convert.base64Decode('ChBHZXRDb25maWdSZXF1ZXN0');
+
+@$core.Deprecated('Use getConfigResponseDescriptor instead')
+const GetConfigResponse$json = {
+  '1': 'GetConfigResponse',
+  '2': [
+    {
+      '1': 'providers',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.turing.v1.ProviderConfig',
+      '10': 'providers'
+    },
+    {
+      '1': 'approvals_enabled',
+      '3': 2,
+      '4': 1,
+      '5': 8,
+      '10': 'approvalsEnabled'
+    },
+    {'1': 'files_mcp_enabled', '3': 3, '4': 1, '5': 8, '10': 'filesMcpEnabled'},
+  ],
+};
+
+/// Descriptor for `GetConfigResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getConfigResponseDescriptor = $convert.base64Decode(
+    'ChFHZXRDb25maWdSZXNwb25zZRI3Cglwcm92aWRlcnMYASADKAsyGS50dXJpbmcudjEuUHJvdm'
+    'lkZXJDb25maWdSCXByb3ZpZGVycxIrChFhcHByb3ZhbHNfZW5hYmxlZBgCIAEoCFIQYXBwcm92'
+    'YWxzRW5hYmxlZBIqChFmaWxlc19tY3BfZW5hYmxlZBgDIAEoCFIPZmlsZXNNY3BFbmFibGVk');
+
+@$core.Deprecated('Use listAgentsRequestDescriptor instead')
+const ListAgentsRequest$json = {
+  '1': 'ListAgentsRequest',
+};
+
+/// Descriptor for `ListAgentsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listAgentsRequestDescriptor =
+    $convert.base64Decode('ChFMaXN0QWdlbnRzUmVxdWVzdA==');
+
+@$core.Deprecated('Use listAgentsResponseDescriptor instead')
+const ListAgentsResponse$json = {
+  '1': 'ListAgentsResponse',
+  '2': [
+    {
+      '1': 'agents',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.turing.v1.AgentDescriptor',
+      '10': 'agents'
+    },
+  ],
+};
+
+/// Descriptor for `ListAgentsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listAgentsResponseDescriptor = $convert.base64Decode(
+    'ChJMaXN0QWdlbnRzUmVzcG9uc2USMgoGYWdlbnRzGAEgAygLMhoudHVyaW5nLnYxLkFnZW50RG'
+    'VzY3JpcHRvclIGYWdlbnRz');
+
+@$core.Deprecated('Use toolDescriptorDescriptor instead')
+const ToolDescriptor$json = {
+  '1': 'ToolDescriptor',
+  '2': [
+    {'1': 'server_name', '3': 1, '4': 1, '5': 9, '10': 'serverName'},
+    {'1': 'tool_name', '3': 2, '4': 1, '5': 9, '10': 'toolName'},
+    {
+      '1': 'policy',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.turing.v1.ToolPolicy',
+      '10': 'policy'
+    },
+  ],
+};
+
+/// Descriptor for `ToolDescriptor`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List toolDescriptorDescriptor = $convert.base64Decode(
+    'Cg5Ub29sRGVzY3JpcHRvchIfCgtzZXJ2ZXJfbmFtZRgBIAEoCVIKc2VydmVyTmFtZRIbCgl0b2'
+    '9sX25hbWUYAiABKAlSCHRvb2xOYW1lEi0KBnBvbGljeRgDIAEoDjIVLnR1cmluZy52MS5Ub29s'
+    'UG9saWN5UgZwb2xpY3k=');
+
+@$core.Deprecated('Use listToolsRequestDescriptor instead')
+const ListToolsRequest$json = {
+  '1': 'ListToolsRequest',
+};
+
+/// Descriptor for `ListToolsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listToolsRequestDescriptor =
+    $convert.base64Decode('ChBMaXN0VG9vbHNSZXF1ZXN0');
+
+@$core.Deprecated('Use listToolsResponseDescriptor instead')
+const ListToolsResponse$json = {
+  '1': 'ListToolsResponse',
+  '2': [
+    {
+      '1': 'tools',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.turing.v1.ToolDescriptor',
+      '10': 'tools'
+    },
+  ],
+};
+
+/// Descriptor for `ListToolsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listToolsResponseDescriptor = $convert.base64Decode(
+    'ChFMaXN0VG9vbHNSZXNwb25zZRIvCgV0b29scxgBIAMoCzIZLnR1cmluZy52MS5Ub29sRGVzY3'
+    'JpcHRvclIFdG9vbHM=');
