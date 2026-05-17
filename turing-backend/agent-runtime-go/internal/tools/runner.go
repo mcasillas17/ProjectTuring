@@ -1,0 +1,125 @@
+package tools
+
+import (
+	"context"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"time"
+
+	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
+	"github.com/mcasillas17/TuringAgent/turing-backend/agent-runtime-go/internal/safejson"
+	"github.com/oklog/ulid/v2"
+	"golang.org/x/sync/errgroup"
+)
+
+type MCPClient interface {
+	CallTool(ctx context.Context, name string, args map[string]any, approvalToken ...string) (map[string]any, error)
+}
+
+type Runner struct {
+	PostBeacon       func(context.Context, *turingv1.ToolCallBeacon) (*turingv1.ToolPolicyDecision, error)
+	WaitApproval     func(context.Context, string) (string, error)
+	MetadataFetchers []func(context.Context) error
+}
+
+type RunInput struct {
+	AgentID    turingv1.AgentId
+	RunID      string
+	TraceID    string
+	ServerName string
+	ToolName   string
+	Args       map[string]any
+	MCPClient  MCPClient
+}
+
+func (r *Runner) Run(ctx context.Context, input RunInput) (map[string]any, error) {
+	if input.Args == nil {
+		input.Args = map[string]any{}
+	}
+	if err := r.fetchMetadata(ctx); err != nil {
+		return nil, err
+	}
+	toolCallID := newToolCallID()
+	started := time.Now()
+	decision, err := r.post(ctx, beacon(input, toolCallID, turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE, turingv1.ToolCallStatus_TOOL_CALL_STATUS_UNSPECIFIED, "", nil, 0))
+	if err != nil {
+		return nil, err
+	}
+	approvalToken := ""
+	switch decision.GetDecision() {
+	case turingv1.ToolPolicyDecision_DECISION_ALLOW:
+	case turingv1.ToolPolicyDecision_DECISION_DENY:
+		reason := decision.GetReason()
+		if reason == "" {
+			reason = "tool_denied"
+		}
+		_ = r.postAfter(ctx, input, toolCallID, turingv1.ToolCallStatus_TOOL_CALL_STATUS_DENIED, "", &turingv1.ToolCallError{Code: "tool_denied", Message: reason}, started)
+		return nil, fmt.Errorf("tool denied: %s", reason)
+	case turingv1.ToolPolicyDecision_DECISION_APPROVAL_REQUIRED:
+		if r.WaitApproval == nil {
+			_ = r.postAfter(ctx, input, toolCallID, turingv1.ToolCallStatus_TOOL_CALL_STATUS_DENIED, "", &turingv1.ToolCallError{Code: "approval_unavailable", Message: "approval waiter is not configured"}, started)
+			return nil, errors.New("approval waiter is not configured")
+		}
+		approvalToken, err = r.WaitApproval(ctx, decision.GetApprovalId())
+		if err != nil {
+			_ = r.postAfter(ctx, input, toolCallID, turingv1.ToolCallStatus_TOOL_CALL_STATUS_DENIED, "", &turingv1.ToolCallError{Code: "approval_denied", Message: err.Error()}, started)
+			return nil, err
+		}
+	default:
+		_ = r.postAfter(ctx, input, toolCallID, turingv1.ToolCallStatus_TOOL_CALL_STATUS_DENIED, "", &turingv1.ToolCallError{Code: "tool_denied", Message: "unsupported policy decision"}, started)
+		return nil, errors.New("unsupported tool policy decision")
+	}
+	result, err := input.MCPClient.CallTool(ctx, input.ToolName, input.Args, approvalToken)
+	if err != nil {
+		_ = r.postAfter(ctx, input, toolCallID, turingv1.ToolCallStatus_TOOL_CALL_STATUS_FAILED, "", &turingv1.ToolCallError{Code: "mcp_call_failed", Message: err.Error()}, started)
+		return nil, err
+	}
+	if err := r.postAfter(ctx, input, toolCallID, turingv1.ToolCallStatus_TOOL_CALL_STATUS_COMPLETED, safejson.Summary(result, 500), nil, started); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *Runner) fetchMetadata(ctx context.Context) error {
+	group, ctx := errgroup.WithContext(ctx)
+	for _, fetch := range r.MetadataFetchers {
+		fetch := fetch
+		group.Go(func() error { return fetch(ctx) })
+	}
+	return group.Wait()
+}
+
+func (r *Runner) postAfter(ctx context.Context, input RunInput, toolCallID string, status turingv1.ToolCallStatus, summary string, callErr *turingv1.ToolCallError, started time.Time) error {
+	_, err := r.post(ctx, beacon(input, toolCallID, turingv1.ToolCallPhase_TOOL_CALL_PHASE_AFTER, status, summary, callErr, time.Since(started).Milliseconds()))
+	return err
+}
+
+func (r *Runner) post(ctx context.Context, beacon *turingv1.ToolCallBeacon) (*turingv1.ToolPolicyDecision, error) {
+	if r.PostBeacon == nil {
+		return nil, errors.New("tool beacon poster is not configured")
+	}
+	return r.PostBeacon(ctx, beacon)
+}
+
+func beacon(input RunInput, toolCallID string, phase turingv1.ToolCallPhase, status turingv1.ToolCallStatus, summary string, callErr *turingv1.ToolCallError, durationMS int64) *turingv1.ToolCallBeacon {
+	args, _ := safejson.ToStruct(input.Args)
+	return &turingv1.ToolCallBeacon{
+		Phase:         phase,
+		ToolCallId:    toolCallID,
+		AgentId:       input.AgentID,
+		ServerName:    input.ServerName,
+		ToolName:      input.ToolName,
+		Args:          args,
+		Status:        status,
+		ResultSummary: summary,
+		DurationMs:    durationMS,
+		Error:         callErr,
+		RunId:         input.RunID,
+		TraceId:       input.TraceID,
+	}
+}
+
+func newToolCallID() string {
+	return "call_" + ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
+}
