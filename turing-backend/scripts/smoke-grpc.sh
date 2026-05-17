@@ -3,8 +3,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ./scripts/init.sh
-docker compose -f infra/docker-compose.yml up --build -d
-trap 'docker compose -f infra/docker-compose.yml down' EXIT
+
+compose() {
+  docker compose --env-file .env -f infra/docker-compose.yml "$@"
+}
+
+compose up --build -d
+trap 'compose down' EXIT
 
 ready=0
 for _ in $(seq 1 60); do
