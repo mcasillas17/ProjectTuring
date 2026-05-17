@@ -196,8 +196,18 @@ func (w *Worker) postToolBeacon(ctx context.Context, stream RuntimeStream, beaco
 	case decision := <-waiter:
 		return decision, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, sentBeaconError{err: ctx.Err()}
 	}
+}
+
+type sentBeaconError struct {
+	err error
+}
+
+func (e sentBeaconError) Error() string { return e.err.Error() }
+func (e sentBeaconError) Unwrap() error { return e.err }
+func (e sentBeaconError) BeaconPosted() bool {
+	return true
 }
 
 func (w *Worker) deliverDecision(decision *turingv1.ToolPolicyDecision) {

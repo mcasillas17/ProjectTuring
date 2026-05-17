@@ -44,6 +44,9 @@ func (r *Runner) Run(ctx context.Context, input RunInput) (map[string]any, error
 	started := time.Now()
 	decision, err := r.post(ctx, beacon(input, toolCallID, turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE, turingv1.ToolCallStatus_TOOL_CALL_STATUS_UNSPECIFIED, "", nil, 0))
 	if err != nil {
+		if beaconWasPosted(err) {
+			_ = r.postAfter(ctx, input, toolCallID, turingv1.ToolCallStatus_TOOL_CALL_STATUS_FAILED, "", &turingv1.ToolCallError{Code: "tool_policy_decision_failed", Message: err.Error()}, started)
+		}
 		return nil, err
 	}
 	approvalToken := ""
@@ -100,6 +103,15 @@ func (r *Runner) post(ctx context.Context, beacon *turingv1.ToolCallBeacon) (*tu
 		return nil, errors.New("tool beacon poster is not configured")
 	}
 	return r.PostBeacon(ctx, beacon)
+}
+
+type postedBeaconError interface {
+	BeaconPosted() bool
+}
+
+func beaconWasPosted(err error) bool {
+	var posted postedBeaconError
+	return errors.As(err, &posted) && posted.BeaconPosted()
 }
 
 func beacon(input RunInput, toolCallID string, phase turingv1.ToolCallPhase, status turingv1.ToolCallStatus, summary string, callErr *turingv1.ToolCallError, durationMS int64) *turingv1.ToolCallBeacon {

@@ -88,6 +88,35 @@ func TestWorkerDoesNotSendDerivedMessageCompletedEvent(t *testing.T) {
 	}
 }
 
+func TestPostToolBeaconMarksErrorAfterBeaconSent(t *testing.T) {
+	stream := newFakeStream()
+	worker := New(Options{WorkerID: "worker-1", MaxConcurrentRuns: 1}, &fakeRuntimeClient{stream: stream}, terminalExecutor{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := worker.postToolBeacon(ctx, stream, &turingv1.ToolCallBeacon{
+		RunId:      "run_1",
+		TraceId:    "trace_1",
+		ToolCallId: "call_1",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "system",
+		ToolName:   "system.echo",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("postToolBeacon error = %v, want context.Canceled", err)
+	}
+	var posted interface{ BeaconPosted() bool }
+	if !errors.As(err, &posted) || !posted.BeaconPosted() {
+		t.Fatalf("postToolBeacon error = %T %[1]v, want BeaconPosted marker", err)
+	}
+	update := nextSent(t, stream)
+	if update.GetToolBeacon() == nil || update.GetToolBeacon().ToolCallId != "call_1" {
+		t.Fatalf("sent update = %+v, want before beacon", update)
+	}
+}
+
 type providerExecutor struct{ provider llm.Provider }
 
 func (e providerExecutor) Execute(ctx context.Context, job *turingv1.AgentJob, emit func(*turingv1.RuntimeUpdate) error) error {
