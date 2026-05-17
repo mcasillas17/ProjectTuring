@@ -14,6 +14,25 @@ func TestDockerComposeKeepsServiceSecretsLeastPrivilege(t *testing.T) {
 	}
 	compose := string(data)
 
+	orchestrator := composeServiceBlock(t, compose, "turing-orchestrator")
+	requireNoEnvFile(t, "turing-orchestrator", orchestrator)
+	requireContainsAll(t, "turing-orchestrator", orchestrator,
+		"TURING_CLIENT_API_KEY:",
+		"TURING_INTERNAL_TOKEN:",
+		"MCP_SYSTEM_TOKEN_GENERAL:",
+		"MCP_FILES_TOKEN_GENERAL:",
+		"TURING_APPROVAL_JWT_SECRET:",
+		"DATABASE_PATH:",
+		"OLLAMA_BASE_URL:",
+		"OPENAI_API_KEY:",
+	)
+	requireContainsNone(t, "turing-orchestrator", orchestrator,
+		"ORCHESTRATOR_GRPC_ADDR:",
+		"MCP_SYSTEM_BASE_URL:",
+		"MCP_FILES_BASE_URL:",
+		"FILES_SANDBOX_ROOT:",
+	)
+
 	agent := composeServiceBlock(t, compose, "turing-agent-runtime-general")
 	requireNoEnvFile(t, "turing-agent-runtime-general", agent)
 	requireContainsAll(t, "turing-agent-runtime-general", agent,
