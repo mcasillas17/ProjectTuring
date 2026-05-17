@@ -37,5 +37,5 @@ rm -f .env.bak
 mkdir -p data sandbox
 
 client_key="$(grep '^TURING_CLIENT_API_KEY=' .env | cut -d= -f2-)"
-printf 'Project Turing backend initialized.\n'
+printf 'TuringAgent backend initialized.\n'
 printf 'Flutter client API key: %s\n' "$client_key"

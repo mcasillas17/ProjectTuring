@@ -1,115 +1,103 @@
 # TuringAgent
 
-TuringAgent is a local-first personal AI orchestration platform. It coordinates a Flutter client with a Go gRPC orchestrator that manages sessions, agent runs, runtime events, and MCP tool calls.
+TuringAgent is a local-first AI orchestration platform for running a private assistant stack on your own machine. It pairs a Flutter client with a Go gRPC backend that owns chat sessions, model routing, streaming events, tool execution, approvals, and audit state.
 
-## TuringAgent v1.0 local runtime
+The project is designed for local development first: secrets stay in your local `.env`, data is stored under `turing-backend/data/`, and file tools are constrained to `turing-backend/sandbox/`.
 
-> **Status:** v1.0 foundation is integrated on `pturing-v1-base`. The local stack includes the Go orchestrator, SQLite persistence, the Go general agent runtime, Go MCP servers, Ollama routing, public gRPC streaming, and the Flutter client shell.
+## What it does
 
-### Prerequisites
+- Runs a Go gRPC orchestrator for sessions, messages, runs, events, and approvals.
+- Runs a Go agent runtime that connects to local or OpenAI-compatible models.
+- Exposes MCP tool servers for safe system tools and approval-gated sandboxed file tools.
+- Provides a Flutter client with settings, session list, chat, streamed responses, and approval cards.
+- Ships a Docker Compose local stack and an end-to-end gRPC smoke test.
 
-- **Docker and Docker Compose**: Required for running the orchestrator, agent runtime, and MCP servers.
-- **Go 1.23+**: Required for local Go tests and the gRPC smoke client.
-- **Ollama**: Must be running on your host machine for model-backed chat. TuringAgent expects Ollama to be reachable at `http://host.docker.internal:11434` from within Docker.
-- **Flutter**: Required for building and running the client application.
+## Requirements
 
-### Backend setup
+- Docker and Docker Compose
+- Go 1.23+
+- Flutter
+- Ollama running on the host for the default local model path
 
-Initialize local secrets and start the full v1 backend stack:
+By default, containers reach Ollama at `http://host.docker.internal:11434`.
+
+## Install and run
+
+Clone the repository and initialize local backend secrets:
 
 ```bash
-cd turing-backend
+git clone https://github.com/mcasillas17/TuringAgent.git
+cd TuringAgent/turing-backend
 ./scripts/init.sh
+```
+
+`init.sh` creates `turing-backend/.env`, generates local bearer tokens, creates `data/` and `sandbox/`, and prints the Flutter client API key. Do not commit `.env`.
+
+Start the backend stack:
+
+```bash
 ./scripts/dev.sh
 ```
 
-`init.sh` creates `.env`, generates local-only secrets, creates `data/` and
-`sandbox/`, and prints `TURING_CLIENT_API_KEY`. Save that key for local clients.
-`dev.sh` runs `docker compose -f infra/docker-compose.yml up --build`.
+This builds and runs the orchestrator, agent runtime, and MCP servers through Docker Compose. The public gRPC API listens on `localhost:3000` by default.
 
-The default Compose stack starts:
+In another terminal, run the Flutter app:
 
-| Service | Purpose | Network exposure |
-|---|---|---|
-| `turing-orchestrator` | Public gRPC API, internal runtime gRPC API, SQLite persistence | Publishes gRPC port `3000`; exposes internal gRPC port `3001` only to Docker networks |
-| `turing-agent-runtime-general` | Connects to the orchestrator over internal gRPC, calls model providers, streams runtime events back to the orchestrator | Internal Docker networks only |
-| `turing-mcp-system` | Safe system MCP tools | Internal `net-system` network only |
-| `turing-mcp-files` | Sandboxed file MCP tools with approval-gated writes | Internal `net-files` network only |
-
-Important `.env` values:
-
-| Variable | Purpose |
-|---|---|
-| `TURING_CLIENT_API_KEY` | Bearer token for public gRPC clients |
-| `TURING_INTERNAL_TOKEN` | Bearer token for orchestrator internal gRPC APIs and MCP approval consumption |
-| `MCP_SYSTEM_TOKEN_GENERAL` / `MCP_FILES_TOKEN_GENERAL` | Per-server runtime-to-MCP bearer tokens |
-| `TURING_APPROVAL_JWT_SECRET` | HS256 signing secret shared by the orchestrator and Files MCP server |
-| `ORCHESTRATOR_GRPC_ADDR` | Internal runtime gRPC address, normally `turing-orchestrator:3001` |
-| `FILES_SANDBOX_ROOT` | Files MCP sandbox root inside the container, normally `/sandbox` |
-| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | Local model endpoint and default model |
-
-Public gRPC calls must include metadata:
-
-```text
-authorization: Bearer <TURING_CLIENT_API_KEY>
+```bash
+cd turing-client/turing_app
+flutter pub get
+flutter run -d macos
 ```
 
-For approval-gated filesystem writes, the orchestrator creates approval records,
-signs a short-lived JWT after user approval, and the Files MCP server validates
-and consumes that approval before touching disk. See the [MCP Security and
-Integration Guide](docs/mcp-security-and-integration.md) for the full flow.
+On first launch, enter:
 
-### Smoke Testing
+- **Backend URL:** `http://localhost:3000`
+- **API key:** the `Flutter client API key` printed by `./scripts/init.sh`
 
-Run the end-to-end gRPC smoke path after Docker is available:
+## Verify the stack
+
+Run the backend smoke test:
 
 ```bash
 cd turing-backend
 ./scripts/smoke-grpc.sh
 ```
 
-The smoke script initializes secrets, builds and starts the Compose stack, checks
-`HealthService.Check`, creates a session, calls `ChatService.SendMessage`, waits
-for a token delta plus a terminal run event, and verifies replay with
-`EventService.ListEvents(after_sequence = 0)`.
-
-Script syntax/build checks:
+Run developer checks from the repository root:
 
 ```bash
-bash -n turing-backend/scripts/smoke-grpc.sh
-cd turing-backend && go run ./scripts/grpc-smoke-client.go -health-only
+go test ./... -count=1
+go build ./...
+cd turing-backend/mcp-files && go test ./... -count=1 && go build ./cmd/server
+cd ../../turing-client/turing_app && flutter test
 ```
 
-#### Full `smoke-grpc.sh` flow:
+## Configuration
 
-1. **Initialization**: Runs `./scripts/init.sh` to create local secrets.
-2. **Orchestration**: Uses `docker compose -f infra/docker-compose.yml up --build -d` to ensure a clean, up-to-date environment.
-3. **Health Check**: Polls public gRPC `HealthService.Check` on `localhost:${ORCHESTRATOR_PUBLIC_PORT:-3000}`.
-4. **gRPC Validation**:
-   - Creates a test session with `SessionService.CreateSession`.
-   - Sends a deterministic `/tool system.time` message with `ChatService.SendMessage`.
-   - Waits for a streamed token delta and `run_completed` event.
-   - Replays persisted events with `EventService.ListEvents`.
+Backend configuration lives in `turing-backend/.env`, copied from `turing-backend/.env.example`.
 
-### Flutter Client Setup
+Common values:
 
-See the [Flutter client integration guide](turing-client/turing_app/README.md)
-for run commands, shell integration details, settings behavior, and current
-backend-dependent limitations. The client is available now, but end-to-end chat
-requires the backend orchestrator, runtime, and event stream to be running.
+| Variable | Purpose |
+|---|---|
+| `TURING_CLIENT_API_KEY` | Bearer token for Flutter and other public gRPC clients |
+| `TURING_INTERNAL_TOKEN` | Bearer token for internal runtime and approval gRPC calls |
+| `TURING_APPROVAL_JWT_SECRET` | HS256 secret used for approval tokens |
+| `ORCHESTRATOR_GRPC_ADDR` | Internal orchestrator gRPC address, usually `turing-orchestrator:3001` |
+| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | Local model endpoint and default model |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | Optional OpenAI-compatible model configuration |
 
-### Troubleshooting
+## Troubleshooting
 
-- **Backend not healthy**: If `HealthService.Check` does not respond on port 3000, check that the orchestrator container built successfully and that no other local service is using the port.
-- **gRPC auth/config failures**: `Unauthenticated` responses usually mean `TURING_CLIENT_API_KEY` is missing, mismatched, or not loaded from `.env`.
-- **Ollama Connection Refused**: Ensure Ollama is running on your host. On macOS, ensure Docker can reach it through `host.docker.internal`.
-- **gRPC Smoke Timeout**: If `smoke-grpc.sh` times out, check the `turing-orchestrator` and `turing-agent-runtime-general` logs for auth failures, runtime crashes, missing events, or an incorrect `session_id`/`run_id`.
-- **Missing `.env`**: Run `scripts/init.sh` first. Do not commit your `.env` file.
-- **Database Locked**: If you encounter SQLite `BUSY` errors during high-concurrency smoke tests, ensure you are using the WAL journal mode (managed by the orchestrator).
-- **Wrong Ports**: Default ports are 3000 (public gRPC) and 3001 (internal gRPC). If these conflict with other local services, update your `.env` and restart the backend services.
+- **Backend is not reachable:** check that Docker Compose is running and port `3000` is free.
+- **Authentication fails:** confirm the Flutter API key matches `TURING_CLIENT_API_KEY` in `turing-backend/.env`.
+- **No model response:** ensure Ollama is running on the host and the configured model is available.
+- **Smoke test times out:** inspect the `turing-orchestrator` and `turing-agent-runtime-general` container logs.
+- **File tools fail:** confirm `turing-backend/sandbox/` exists and that approval-required write tools were approved in the client.
 
-### Documentation
+## Documentation
 
-- [Technical Specification](docs/superpowers/specs/2026-05-09-project-turing-v1-design-copilot.md)
-- [Implementation Plan](docs/superpowers/plans/2026-05-10-project-turing-v1-hybrid-runtime.md)
-- [Integration Checklist](docs/superpowers/integration-checklist.md)
+- [Tech stack and architecture](docs/architecture/tech-stack.md)
+- [MCP security and approval flow](docs/mcp-security-and-integration.md)
+- [Flutter client guide](turing-client/turing_app/README.md)
+- [Go/gRPC migration design](docs/superpowers/specs/2026-05-15-turing-go-grpc-migration-design.md)
