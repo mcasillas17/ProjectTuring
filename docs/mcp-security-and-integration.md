@@ -365,37 +365,37 @@ that pins the hash for `{"B": 1, "a": 2}` to:
 sha256:812e5e7fb7bb816dc477e91a136430192eadcf83ff303881298146e106ae0161
 ```
 
-This fixture is the source of truth for v1.0. The orchestrator's TypeScript
-signer (Task 13) must reproduce the same canonical-JSON byte sequence so its
-hash matches. If the orchestrator emits a different hash (different key
-ordering, different HTML escaping, different whitespace), every approval
-will fail with `approval args_hash does not match call`.
+This fixture is the source of truth for v1.0. The Go orchestrator signer must
+reproduce the same canonical-JSON byte sequence so its hash matches. If the
+orchestrator emits a different hash (different key ordering, different HTML
+escaping, different whitespace), every approval will fail with
+`approval args_hash does not match call`.
 
 ### Single-use consume
 
-After the four claim checks pass, the verifier issues an internal HTTP POST
-to consume the JWT's unique identifier (`jti`). This is what makes approvals
-single-use.
+After the four claim checks pass, the verifier calls the orchestrator's gRPC
+`ApprovalService.ConsumeApproval` method with the JWT's unique identifier
+(`jti`). This is what makes approvals single-use.
 
-- URL: `${ORCHESTRATOR_INTERNAL_BASE_URL}/approvals/{jti}/consume`. The
-  default base is `http://turing-orchestrator:3001/internal`.
-- Headers: `Authorization: Bearer ${TURING_INTERNAL_TOKEN}`.
-- Body: empty.
-- Status code handling:
-  - `200 OK` — the JWT was unused; the verifier returns success and the
-    write proceeds.
-  - `409 Conflict` — the JWT was already used, or the underlying approval
-    record was never approved. The verifier returns
+- Address: `${ORCHESTRATOR_GRPC_ADDR}`. The default is
+  `turing-orchestrator:3001`.
+- Metadata: `authorization: Bearer ${TURING_INTERNAL_TOKEN}`.
+- Response handling:
+  - `APPROVAL_STATUS_CONSUMED` — the JWT was unused; the verifier returns
+    success and the write proceeds.
+  - `FailedPrecondition` — the JWT was already used, or the underlying
+    approval record was never approved. The verifier returns
     `approval already consumed or not approved` and the write is aborted.
-  - Any other status — generic failure: `approval consume failed: HTTP <code>`.
+  - Any other gRPC error — generic failure: `approval consume failed: <error>`.
     The write is aborted.
 
-The write happens **only after consume returns `200`**. In other words, a
+The write happens **only after consume returns consumed**. In other words, a
 successful consume is the act of marking the JWT used, and any failure path
 after that point (write error, etc.) does not roll consume back. This is
 intentional: a partially completed write is still a "used" approval.
 
-`TestValidateRejectsConsumeReplayConflict` asserts the `409` path.
+`TestValidateRejectsConsumeReplayConflict` asserts the `FailedPrecondition`
+path.
 
 ### Failure-mode ordering
 
@@ -408,9 +408,9 @@ The verification pipeline is, in order:
 5. `aud != "mcp-files"` — `invalid approval audience`.
 6. `sub != agentID` — `approval subject does not match agent`.
 7. `tool != params.name` — `approval tool does not match call`.
-8. `args_hash` mismatch — `approval args_hash does not match call`.
-9. Consume returns `409` — `approval already consumed or not approved`.
-10. Consume returns any other non-`200` — `approval consume failed: HTTP <code>`.
+8.  `args_hash` mismatch — `approval args_hash does not match call`.
+9.  Consume returns gRPC `FailedPrecondition` — `approval already consumed or not approved`.
+10. Consume returns any other gRPC error — `approval consume failed: <error>`.
 
 None of these branches fall through to the I/O path.
 
@@ -432,7 +432,7 @@ A concise mapping from rejection to threat:
 - **Approval replay across arguments.** `args_hash` claim must equal the
   canonical-JSON SHA-256 of the call's `arguments`.
 - **Approval reuse.** Single-use `jti` consume against the orchestrator;
-  `409` aborts the write.
+  `FailedPrecondition` aborts the write.
 - **Token-to-agent mismatch.** `sub` claim must equal the agent identity
   the bearer mapped to. v1.0 has only one agent, but the binding is in
   place for v1.1.
@@ -458,10 +458,10 @@ A concise mapping from rejection to threat:
 - Treats any HTTP non-2xx from an MCP server as a hard error (e.g.
   `MCP HTTP 401`) rather than as a tool result.
 
-### Orchestrator (Task 13)
+### Orchestrator
 
-The orchestrator implements the signing side and the consume endpoint that the
-Files MCP verifier calls.
+The orchestrator implements the signing side and the gRPC consume method that
+the Files MCP verifier calls.
 
 JWT signing requirements:
 
@@ -474,8 +474,8 @@ JWT signing requirements:
   - `tool`: the exact `name` from the upcoming JSON-RPC `tools/call`
     (e.g. `"files.create"`).
   - `args_hash`: `sha256:<hex>` of `canonicalJSON(arguments)` (see below).
-  - `jti`: a unique identifier per approval. Must be the same value used in
-    the `/approvals/{jti}/consume` route.
+  - `jti`: a unique identifier per approval. Must be passed as
+    `ConsumeApproval.approval_id`.
   - `exp`: short enough to make replay risk negligible. A few minutes is
     appropriate; longer than that is a policy choice that the security
     review should be aware of.
@@ -486,26 +486,26 @@ Canonical-hash parity:
 - The Go verifier's `canonicalJSON` is `encoding/json` output with
   `SetEscapeHTML(false)` and the trailing newline trimmed. Go's encoder
   sorts map keys.
-- The TypeScript signer must produce byte-identical canonical JSON. The
-  fixture `{"B": 1, "a": 2}` must hash to
+- The Go signer must produce byte-identical canonical JSON. The fixture
+  `{"B": 1, "a": 2}` must hash to
   `sha256:812e5e7fb7bb816dc477e91a136430192eadcf83ff303881298146e106ae0161`.
   Mismatches here will cause every approval to fail at the `args_hash`
   check, even though signatures, audience, subject, and tool are correct.
 
-Consume endpoint requirements:
+Consume method requirements:
 
-- Route: `POST /internal/approvals/{jti}/consume`.
-- Auth: `Authorization: Bearer ${TURING_INTERNAL_TOKEN}`. The endpoint
-  must stay behind the internal port (not published to the host).
-- Body: ignore.
+- RPC: `ApprovalService.ConsumeApproval`.
+- Request: `approval_id` is the JWT `jti`.
+- Auth: gRPC metadata `authorization: Bearer ${TURING_INTERNAL_TOKEN}`. The
+  service must stay on the internal gRPC port (not published to the host).
 - Semantics:
   - First call for a given `jti` that corresponds to an approved request
-    returns `200 OK`.
+    returns `APPROVAL_STATUS_CONSUMED`.
   - Subsequent calls for the same `jti`, or calls for a `jti` whose
-    underlying approval was never granted, return `409 Conflict`. The MCP
-    server maps `409` to `approval already consumed or not approved` and
-    aborts the write.
-  - Any other status is treated by the MCP server as a generic failure
+    underlying approval was never granted, return gRPC `FailedPrecondition`.
+    The MCP server maps that to `approval already consumed or not approved`
+    and aborts the write.
+  - Any other gRPC error is treated by the MCP server as a generic failure
     and aborts the write.
 
 ### v1.1 follow-ups intentionally deferred

@@ -63,15 +63,19 @@ func TestDockerComposeKeepsServiceSecretsLeastPrivilege(t *testing.T) {
 	files := composeServiceBlock(t, compose, "turing-mcp-files")
 	requireNoEnvFile(t, "turing-mcp-files", files)
 	requireContainsAll(t, "turing-mcp-files", files,
+		"build:",
+		"context: ../..",
+		"dockerfile: turing-backend/mcp-files/Dockerfile",
 		"MCP_FILES_TOKEN_GENERAL:",
 		"TURING_APPROVAL_JWT_SECRET:",
 		"TURING_INTERNAL_TOKEN:",
-		"ORCHESTRATOR_INTERNAL_BASE_URL:",
+		"ORCHESTRATOR_GRPC_ADDR:",
 		"FILES_SANDBOX_ROOT:",
 	)
 	requireContainsNone(t, "turing-mcp-files", files,
 		"TURING_CLIENT_API_KEY:",
 		"OPENAI_API_KEY:",
+		"ORCHESTRATOR_INTERNAL_BASE_URL:",
 	)
 }
 

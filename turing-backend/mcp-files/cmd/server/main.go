@@ -13,11 +13,11 @@ import (
 )
 
 type serverConfig struct {
-	filesToken          string
-	approvalJwtSecret   string
-	orchestratorBaseURL string
-	internalToken       string
-	sandboxRoot         string
+	filesToken           string
+	approvalJwtSecret    string
+	orchestratorGRPCAddr string
+	internalToken        string
+	sandboxRoot          string
 }
 
 func main() {
@@ -35,20 +35,20 @@ func main() {
 
 func loadConfig() serverConfig {
 	return serverConfig{
-		filesToken:          os.Getenv("MCP_FILES_TOKEN_GENERAL"),
-		approvalJwtSecret:   os.Getenv("TURING_APPROVAL_JWT_SECRET"),
-		orchestratorBaseURL: envOrDefault("ORCHESTRATOR_INTERNAL_BASE_URL", "http://turing-orchestrator:3001/internal"),
-		internalToken:       os.Getenv("TURING_INTERNAL_TOKEN"),
-		sandboxRoot:         envOrDefault("FILES_SANDBOX_ROOT", "/sandbox"),
+		filesToken:           os.Getenv("MCP_FILES_TOKEN_GENERAL"),
+		approvalJwtSecret:    os.Getenv("TURING_APPROVAL_JWT_SECRET"),
+		orchestratorGRPCAddr: envOrDefault("ORCHESTRATOR_GRPC_ADDR", "turing-orchestrator:3001"),
+		internalToken:        os.Getenv("TURING_INTERNAL_TOKEN"),
+		sandboxRoot:          envOrDefault("FILES_SANDBOX_ROOT", "/sandbox"),
 	}
 }
 
 func newHandler(cfg serverConfig) http.Handler {
 	mux := http.NewServeMux()
 	filesTools := tools.NewFilesTools(cfg.sandboxRoot).WithApprovalValidator(approval.Consumer{
-		OrchestratorBaseURL: cfg.orchestratorBaseURL,
-		InternalToken:       cfg.internalToken,
-		JWTSecret:           cfg.approvalJwtSecret,
+		OrchestratorGRPCAddr: cfg.orchestratorGRPCAddr,
+		InternalToken:        cfg.internalToken,
+		JWTSecret:            cfg.approvalJwtSecret,
 	})
 	mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		agentID, err := auth.AgentFromBearer(r, cfg.filesToken)

@@ -2,6 +2,7 @@ package approval
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -9,9 +10,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
+
+	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type Claims struct {
@@ -66,10 +73,15 @@ func VerifyHS256(token string, secret string) (Claims, error) {
 }
 
 type Consumer struct {
-	OrchestratorBaseURL string
-	InternalToken       string
-	JWTSecret           string
-	HTTPClient          *http.Client
+	OrchestratorGRPCAddr string
+	InternalToken        string
+	JWTSecret            string
+	ApprovalClient       ApprovalClient
+	DialOptions          []grpc.DialOption
+}
+
+type ApprovalClient interface {
+	ConsumeApproval(ctx context.Context, in *turingv1.ConsumeApprovalRequest, opts ...grpc.CallOption) (*turingv1.ApprovalResponse, error)
 }
 
 func (c Consumer) Validate(token string, tool string, args map[string]any, agentID string) error {
@@ -97,27 +109,47 @@ func (c Consumer) Validate(token string, tool string, args map[string]any, agent
 }
 
 func (c Consumer) consume(jti string) error {
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/approvals/%s/consume", strings.TrimRight(c.OrchestratorBaseURL, "/"), jti), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, closeClient, err := c.approvalClient(ctx)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.InternalToken)
-	resp, err := client.Do(req)
+	if closeClient != nil {
+		defer closeClient()
+	}
+	if c.InternalToken != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+c.InternalToken)
+	}
+	resp, err := client.ConsumeApproval(ctx, &turingv1.ConsumeApprovalRequest{ApprovalId: jti})
 	if err != nil {
-		return err
+		if status.Code(err) == codes.FailedPrecondition {
+			return errors.New("approval already consumed or not approved")
+		}
+		return fmt.Errorf("approval consume failed: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
-		return nil
+	if resp.GetStatus() != turingv1.ApprovalStatus_APPROVAL_STATUS_CONSUMED {
+		return fmt.Errorf("approval consume returned unexpected status: %s", resp.GetStatus())
 	}
-	if resp.StatusCode == http.StatusConflict {
-		return errors.New("approval already consumed or not approved")
+	return nil
+}
+
+func (c Consumer) approvalClient(ctx context.Context) (ApprovalClient, func() error, error) {
+	if c.ApprovalClient != nil {
+		return c.ApprovalClient, nil, nil
 	}
-	return fmt.Errorf("approval consume failed: HTTP %d", resp.StatusCode)
+	if c.OrchestratorGRPCAddr == "" {
+		return nil, nil, errors.New("orchestrator gRPC address is required")
+	}
+	options := c.DialOptions
+	if len(options) == 0 {
+		options = []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	}
+	conn, err := grpc.DialContext(ctx, c.OrchestratorGRPCAddr, options...)
+	if err != nil {
+		return nil, nil, err
+	}
+	return turingv1.NewApprovalServiceClient(conn), conn.Close, nil
 }
 
 func canonicalArgsHash(args map[string]any) (string, error) {

@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -80,13 +79,6 @@ func grpcAddr(getenv func(string) string) string {
 		return value
 	}
 	if value := getenv("ORCHESTRATOR_INTERNAL_GRPC_ADDR"); value != "" {
-		return value
-	}
-	if value := getenv("ORCHESTRATOR_INTERNAL_BASE_URL"); value != "" {
-		parsed, err := url.Parse(value)
-		if err == nil && parsed.Host != "" {
-			return parsed.Host
-		}
 		return value
 	}
 	return "turing-orchestrator:3001"

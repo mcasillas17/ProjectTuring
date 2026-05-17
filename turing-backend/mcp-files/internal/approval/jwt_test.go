@@ -1,29 +1,36 @@
 package approval
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"net/http"
+	"net"
 	"testing"
 	"time"
+
+	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 )
 
-func TestValidateChecksClaimsAndConsumesOnce(t *testing.T) {
-	consumeCount := 0
+func TestValidateChecksClaimsAndConsumesApprovalOverGRPC(t *testing.T) {
+	server := &recordingApprovalService{status: turingv1.ApprovalStatus_APPROVAL_STATUS_CONSUMED}
+	addr, dialer := startApprovalServer(t, server)
 	consumer := Consumer{
-		OrchestratorBaseURL: "http://orchestrator/internal",
-		InternalToken:       "internal",
-		JWTSecret:           "secret",
-		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			consumeCount++
-			if req.URL.Path != "/internal/approvals/appr_1/consume" || req.Header.Get("Authorization") != "Bearer internal" {
-				t.Fatalf("unexpected consume request: %s %s", req.Method, req.URL.Path)
-			}
-			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
-		})},
+		OrchestratorGRPCAddr: addr,
+		InternalToken:        "internal",
+		JWTSecret:            "secret",
+		DialOptions: []grpc.DialOption{
+			grpc.WithContextDialer(dialer),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		},
 	}
 	args := map[string]any{"content": "hello", "path": "note.txt"}
 	token := signTestToken(t, "secret", Claims{Sub: "general_assistant", Aud: "mcp-files", JTI: "appr_1", Tool: "files.create", ArgsHash: hashArgs(t, args), Exp: time.Now().Add(time.Minute).Unix(), Iat: time.Now().Unix()})
@@ -31,8 +38,11 @@ func TestValidateChecksClaimsAndConsumesOnce(t *testing.T) {
 	if err := consumer.Validate(token, "files.create", args, "general_assistant"); err != nil {
 		t.Fatalf("expected valid approval: %v", err)
 	}
-	if consumeCount != 1 {
-		t.Fatalf("expected one consume call, got %d", consumeCount)
+	if server.approvalID != "appr_1" {
+		t.Fatalf("expected ConsumeApproval approval_id appr_1, got %q", server.approvalID)
+	}
+	if server.authorization != "Bearer internal" {
+		t.Fatalf("expected internal bearer metadata, got %q", server.authorization)
 	}
 }
 
@@ -53,10 +63,7 @@ func TestValidateRejectsMismatchedApprovalBinding(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			consumer := Consumer{OrchestratorBaseURL: "http://orchestrator/internal", InternalToken: "internal", JWTSecret: "secret", HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				t.Fatalf("consume must not be called for invalid binding")
-				return nil, nil
-			})}}
+			consumer := Consumer{InternalToken: "internal", JWTSecret: "secret"}
 			if err := consumer.Validate(signTestToken(t, "secret", tc.claims), tc.tool, tc.args, tc.agent); err == nil {
 				t.Fatalf("expected validation failure")
 			}
@@ -66,9 +73,16 @@ func TestValidateRejectsMismatchedApprovalBinding(t *testing.T) {
 
 func TestValidateRejectsConsumeReplayConflict(t *testing.T) {
 	args := map[string]any{"content": "hello", "path": "note.txt"}
-	consumer := Consumer{OrchestratorBaseURL: "http://orchestrator/internal", InternalToken: "internal", JWTSecret: "secret", HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusConflict, Body: http.NoBody}, nil
-	})}}
+	_, dialer := startApprovalServer(t, &recordingApprovalService{err: status.Error(codes.FailedPrecondition, "approval is not approved")})
+	consumer := Consumer{
+		OrchestratorGRPCAddr: "bufnet",
+		InternalToken:        "internal",
+		JWTSecret:            "secret",
+		DialOptions: []grpc.DialOption{
+			grpc.WithContextDialer(dialer),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		},
+	}
 	token := signTestToken(t, "secret", Claims{Sub: "general_assistant", Aud: "mcp-files", JTI: "appr_1", Tool: "files.create", ArgsHash: hashArgs(t, args), Exp: time.Now().Add(time.Minute).Unix(), Iat: time.Now().Unix()})
 	if err := consumer.Validate(token, "files.create", args, "general_assistant"); err == nil {
 		t.Fatalf("expected replay/consume conflict")
@@ -81,10 +95,47 @@ func TestCanonicalArgsHashMatchesTypeScriptFixture(t *testing.T) {
 	}
 }
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
+type recordingApprovalService struct {
+	turingv1.UnimplementedApprovalServiceServer
+	approvalID    string
+	authorization string
+	status        turingv1.ApprovalStatus
+	err           error
+}
 
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
+func (s *recordingApprovalService) ConsumeApproval(ctx context.Context, req *turingv1.ConsumeApprovalRequest) (*turingv1.ApprovalResponse, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	s.approvalID = req.GetApprovalId()
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		values := md.Get("authorization")
+		if len(values) > 0 {
+			s.authorization = values[0]
+		}
+	}
+	status := s.status
+	if status == turingv1.ApprovalStatus_APPROVAL_STATUS_UNSPECIFIED {
+		status = turingv1.ApprovalStatus_APPROVAL_STATUS_CONSUMED
+	}
+	return &turingv1.ApprovalResponse{ApprovalId: req.GetApprovalId(), Status: status}, nil
+}
+
+func startApprovalServer(t *testing.T, approvalServer turingv1.ApprovalServiceServer) (string, func(context.Context, string) (net.Conn, error)) {
+	t.Helper()
+	listener := bufconn.Listen(1024 * 1024)
+	server := grpc.NewServer()
+	turingv1.RegisterApprovalServiceServer(server, approvalServer)
+	go func() {
+		_ = server.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		server.Stop()
+		_ = listener.Close()
+	})
+	return "bufnet", func(ctx context.Context, _ string) (net.Conn, error) {
+		return listener.DialContext(ctx)
+	}
 }
 
 func signTestToken(t *testing.T, secret string, claims Claims) string {
