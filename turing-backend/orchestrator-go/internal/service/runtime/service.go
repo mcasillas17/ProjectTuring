@@ -2,15 +2,20 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/safejson"
+	auditsvc "github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/audit"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/events"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/tools"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,10 +27,16 @@ const (
 
 type Server struct {
 	turingv1.UnimplementedRuntimeServiceServer
-	repo    *repository.Repository
-	bus     *events.Bus
-	mu      sync.Mutex
-	workers map[string]*worker
+	repo      *repository.Repository
+	bus       *events.Bus
+	approvals approvalCreator
+	audit     *auditsvc.Server
+	mu        sync.Mutex
+	workers   map[string]*worker
+}
+
+type approvalCreator interface {
+	CreateApprovalForTool(ctx context.Context, runID string, toolCallID string, agentID string, toolName string, args map[string]any) (string, error)
 }
 
 type worker struct {
@@ -41,12 +52,12 @@ type assignment struct {
 	runID string
 }
 
-func New(repo *repository.Repository, buses ...*events.Bus) *Server {
-	var bus *events.Bus
-	if len(buses) > 0 {
-		bus = buses[0]
+func New(repo *repository.Repository, bus *events.Bus, approvalServices ...approvalCreator) *Server {
+	var approvals approvalCreator
+	if len(approvalServices) > 0 {
+		approvals = approvalServices[0]
 	}
-	return &Server{repo: repo, bus: bus, workers: map[string]*worker{}}
+	return &Server{repo: repo, bus: bus, approvals: approvals, audit: auditsvc.New(repo), workers: map[string]*worker{}}
 }
 
 func (s *Server) ConnectWorker(stream turingv1.RuntimeService_ConnectWorkerServer) error {
@@ -552,7 +563,177 @@ func (s *Server) handleToolBeacon(ctx context.Context, beacon *turingv1.ToolCall
 	if !isActiveRunStatus(run.Status) {
 		return nil, status.Error(codes.FailedPrecondition, "run is not active")
 	}
+	switch beacon.Phase {
+	case turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE:
+		return s.handleToolBefore(ctx, beacon, run)
+	case turingv1.ToolCallPhase_TOOL_CALL_PHASE_AFTER:
+		return s.handleToolAfter(ctx, beacon, run)
+	default:
+		return nil, status.Error(codes.InvalidArgument, "tool_call phase is required")
+	}
+}
+
+func (s *Server) handleToolBefore(ctx context.Context, beacon *turingv1.ToolCallBeacon, run repository.Run) (*turingv1.ToolPolicyDecision, error) {
+	args := beaconArgs(beacon)
+	argsJSON, argsHash, err := canonicalArgs(args)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "tool args are not valid JSON")
+	}
+	policy, ok := tools.GetPolicy(beacon.ToolName)
+	if !ok {
+		return s.denyToolBefore(ctx, beacon, run, argsJSON, argsHash, "unknown_tool")
+	}
+	if policy == tools.PolicyApprovalRequired && beacon.Args == nil {
+		return s.denyToolBefore(ctx, beacon, run, argsJSON, argsHash, "approval_args_missing")
+	}
+	if policy == tools.PolicyDisabled {
+		return s.denyToolBefore(ctx, beacon, run, argsJSON, argsHash, "tool_disabled")
+	}
+	statusValue := "requested"
+	if policy == tools.PolicySafe {
+		statusValue = "allowed"
+	}
+	if err := s.repo.RecordToolCallBefore(ctx, repository.ToolCallRecord{ToolCallID: beacon.ToolCallId, RunID: beacon.RunId, Status: statusValue}, "general_assistant", beaconServerName(beacon), beacon.ToolName, argsJSON, argsHash); err != nil {
+		return nil, err
+	}
+	event, err := s.appendToolEvent(ctx, run, "tool.call.started", map[string]any{
+		"toolCallId": beacon.ToolCallId,
+		"serverName": beaconServerName(beacon),
+		"toolName":   beacon.ToolName,
+		"args":       args,
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.publishEvent(event)
+	if err := s.audit.Record(ctx, beacon.RunId, "runtime", "", "tool.call.started", beacon.ToolCallId, map[string]any{"toolName": beacon.ToolName}); err != nil {
+		return nil, err
+	}
+	switch policy {
+	case tools.PolicySafe:
+		return &turingv1.ToolPolicyDecision{Decision: turingv1.ToolPolicyDecision_DECISION_ALLOW, ToolCallId: beacon.ToolCallId}, nil
+	case tools.PolicyApprovalRequired:
+		if s.approvals == nil {
+			return nil, status.Error(codes.FailedPrecondition, "approval service is not configured")
+		}
+		approvalID, err := s.approvals.CreateApprovalForTool(ctx, beacon.RunId, beacon.ToolCallId, "general_assistant", beacon.ToolName, args)
+		if err != nil {
+			return nil, err
+		}
+		return &turingv1.ToolPolicyDecision{Decision: turingv1.ToolPolicyDecision_DECISION_APPROVAL_REQUIRED, ToolCallId: beacon.ToolCallId, ApprovalId: approvalID}, nil
+	default:
+		return s.denyToolBefore(ctx, beacon, run, argsJSON, argsHash, "unknown_policy")
+	}
+}
+
+func (s *Server) denyToolBefore(ctx context.Context, beacon *turingv1.ToolCallBeacon, run repository.Run, argsJSON string, argsHash string, reason string) (*turingv1.ToolPolicyDecision, error) {
+	if err := s.repo.RecordToolCallBefore(ctx, repository.ToolCallRecord{ToolCallID: beacon.ToolCallId, RunID: beacon.RunId, Status: "denied"}, "general_assistant", beaconServerName(beacon), beacon.ToolName, argsJSON, argsHash); err != nil {
+		return nil, err
+	}
+	event, err := s.appendToolEvent(ctx, run, "tool.call.denied", map[string]any{
+		"toolCallId": beacon.ToolCallId,
+		"serverName": beaconServerName(beacon),
+		"toolName":   beacon.ToolName,
+		"reason":     reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.publishEvent(event)
+	if err := s.audit.Record(ctx, beacon.RunId, "runtime", "", "tool.call.denied", beacon.ToolCallId, map[string]any{"toolName": beacon.ToolName, "reason": reason}); err != nil {
+		return nil, err
+	}
+	return &turingv1.ToolPolicyDecision{Decision: turingv1.ToolPolicyDecision_DECISION_DENY, ToolCallId: beacon.ToolCallId, Reason: reason}, nil
+}
+
+func (s *Server) handleToolAfter(ctx context.Context, beacon *turingv1.ToolCallBeacon, run repository.Run) (*turingv1.ToolPolicyDecision, error) {
+	statusValue, eventType, err := toolAfterStatus(beacon)
+	if err != nil {
+		return nil, err
+	}
+	errorCode, errorMessage := "", ""
+	if beacon.Error != nil {
+		errorCode = beacon.Error.Code
+		errorMessage = beacon.Error.Message
+	}
+	if err := s.repo.RecordToolCallAfter(ctx, beacon.ToolCallId, beacon.RunId, statusValue, beacon.ResultSummary, errorCode, errorMessage, beacon.DurationMs); err != nil {
+		return nil, err
+	}
+	payload := map[string]any{
+		"toolCallId":    beacon.ToolCallId,
+		"serverName":    beaconServerName(beacon),
+		"toolName":      beacon.ToolName,
+		"status":        statusValue,
+		"resultSummary": beacon.ResultSummary,
+		"durationMs":    beacon.DurationMs,
+	}
+	if beacon.Error != nil {
+		payload["error"] = map[string]any{"code": beacon.Error.Code, "message": beacon.Error.Message}
+	}
+	event, err := s.appendToolEvent(ctx, run, eventType, payload)
+	if err != nil {
+		return nil, err
+	}
+	s.publishEvent(event)
+	if err := s.audit.Record(ctx, beacon.RunId, "runtime", "", eventType, beacon.ToolCallId, map[string]any{"toolName": beacon.ToolName, "status": statusValue}); err != nil {
+		return nil, err
+	}
 	return &turingv1.ToolPolicyDecision{Decision: turingv1.ToolPolicyDecision_DECISION_ALLOW, ToolCallId: beacon.ToolCallId}, nil
+}
+
+func toolAfterStatus(beacon *turingv1.ToolCallBeacon) (string, string, error) {
+	switch beacon.Status {
+	case turingv1.ToolCallStatus_TOOL_CALL_STATUS_COMPLETED:
+		return "completed", "tool.call.completed", nil
+	case turingv1.ToolCallStatus_TOOL_CALL_STATUS_FAILED:
+		return "failed", "tool.call.failed", nil
+	case turingv1.ToolCallStatus_TOOL_CALL_STATUS_DENIED:
+		return "denied", "tool.call.denied", nil
+	default:
+		return "", "", status.Error(codes.InvalidArgument, "tool_call status is required")
+	}
+}
+
+func beaconArgs(beacon *turingv1.ToolCallBeacon) map[string]any {
+	if beacon.Args == nil {
+		return map[string]any{}
+	}
+	return beacon.Args.AsMap()
+}
+
+func canonicalArgs(args map[string]any) (string, string, error) {
+	data, err := safejson.MarshalCanonical(args)
+	if err != nil {
+		return "", "", err
+	}
+	hash := sha256.Sum256(data)
+	return string(data), "sha256:" + fmt.Sprintf("%x", hash[:]), nil
+}
+
+func beaconServerName(beacon *turingv1.ToolCallBeacon) string {
+	if beacon.ServerName != "" {
+		return beacon.ServerName
+	}
+	for i, r := range beacon.ToolName {
+		if r == '.' {
+			return beacon.ToolName[:i]
+		}
+	}
+	return ""
+}
+
+func (s *Server) appendToolEvent(ctx context.Context, run repository.Run, eventType string, payload map[string]any) (repository.Event, error) {
+	payloadJSON, err := safejson.MarshalCanonical(payload)
+	if err != nil {
+		return repository.Event{}, err
+	}
+	return s.repo.AppendEvent(ctx, repository.AppendEventInput{
+		SessionID:   run.SessionID,
+		RunID:       run.RunID,
+		TraceID:     run.TraceID,
+		Type:        eventType,
+		PayloadJSON: string(payloadJSON),
+	})
 }
 
 func (s *Server) publishEvent(event repository.Event) {

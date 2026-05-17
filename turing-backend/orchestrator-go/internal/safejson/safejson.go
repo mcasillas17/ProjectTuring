@@ -95,6 +95,14 @@ func Normalize(value any) (any, error) {
 	}
 }
 
+func MarshalCanonical(value any) ([]byte, error) {
+	normalized, err := Normalize(value)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(normalized)
+}
+
 func ToStruct(value map[string]any) (*structpb.Struct, error) {
 	normalized, err := Normalize(value)
 	if err != nil {

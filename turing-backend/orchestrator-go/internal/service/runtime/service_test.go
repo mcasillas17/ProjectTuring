@@ -15,6 +15,7 @@ import (
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/auth"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/db"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
+	approvalsvc "github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/approvals"
 	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/events"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -38,7 +39,7 @@ func newHarness(t *testing.T) *harness {
 	database := openRuntimeTestDB(t)
 	repo := repository.New(database)
 	bus := events.NewBus(8)
-	service := New(repo, bus)
+	service := New(repo, bus, approvalsvc.New(repo, bus, "approval-secret"))
 	lis := bufconn.Listen(1024 * 1024)
 	grpcServer := grpc.NewServer(grpc.StreamInterceptor(auth.StreamInterceptor("internal-token")))
 	turingv1.RegisterRuntimeServiceServer(grpcServer, service)
@@ -949,6 +950,248 @@ func TestToolBeaconSendsPolicyDecisionCommand(t *testing.T) {
 	}).GetToolPolicyDecision()
 	if decision.Decision != turingv1.ToolPolicyDecision_DECISION_ALLOW {
 		t.Fatalf("tool policy decision = %+v", decision)
+	}
+}
+
+func TestToolBeaconRequiresApprovalForFilesTool(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.enqueueRun(t, "files approval")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-files-approval", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == enqueued.RunID
+	})
+	args, err := structpb.NewStruct(map[string]any{"path": "note.txt", "content": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      enqueued.RunID,
+		TraceId:    enqueued.TraceID,
+		ToolCallId: "call_files_update",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "files",
+		ToolName:   "files.update",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+		Args:       args,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	decision := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		decision := cmd.GetToolPolicyDecision()
+		return decision != nil && decision.ToolCallId == "call_files_update"
+	}).GetToolPolicyDecision()
+	if decision.Decision != turingv1.ToolPolicyDecision_DECISION_APPROVAL_REQUIRED || decision.ApprovalId == "" {
+		t.Fatalf("tool policy decision = %+v", decision)
+	}
+	var toolCallStatus, approvalID string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT status, approval_id FROM tool_calls WHERE id = ?`, "call_files_update").Scan(&toolCallStatus, &approvalID); err != nil {
+		t.Fatal(err)
+	}
+	if toolCallStatus != "approval_required" || approvalID != decision.ApprovalId {
+		t.Fatalf("tool call status=%q approval_id=%q decision=%+v", toolCallStatus, approvalID, decision)
+	}
+	run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "waiting_approval" {
+		t.Fatalf("run status = %q, want waiting_approval", run.Status)
+	}
+	replayed, _, err := h.repo.ReplayEvents(context.Background(), enqueued.SessionID, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawRequested bool
+	for _, event := range replayed {
+		if event.Type == "approval.requested" && event.RunID.Valid && event.RunID.String == enqueued.RunID {
+			sawRequested = true
+		}
+	}
+	if !sawRequested {
+		t.Fatal("approval.requested event was not persisted")
+	}
+}
+
+func TestToolBeaconDeniesApprovalRequiredToolWithoutArgs(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.enqueueRun(t, "missing approval args")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-missing-args", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == enqueued.RunID
+	})
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      enqueued.RunID,
+		TraceId:    enqueued.TraceID,
+		ToolCallId: "call_missing_args",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "files",
+		ToolName:   "files.update",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	decision := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		decision := cmd.GetToolPolicyDecision()
+		return decision != nil && decision.ToolCallId == "call_missing_args"
+	}).GetToolPolicyDecision()
+	if decision.Decision != turingv1.ToolPolicyDecision_DECISION_DENY || decision.Reason != "approval_args_missing" {
+		t.Fatalf("tool policy decision = %+v", decision)
+	}
+	var approvalCount int
+	if err := h.database.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM approvals WHERE tool_call_id = 'call_missing_args'`).Scan(&approvalCount); err != nil {
+		t.Fatal(err)
+	}
+	if approvalCount != 0 {
+		t.Fatalf("approval count = %d, want 0", approvalCount)
+	}
+	var toolCallStatus string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT status FROM tool_calls WHERE id = 'call_missing_args'`).Scan(&toolCallStatus); err != nil {
+		t.Fatal(err)
+	}
+	if toolCallStatus != "denied" {
+		t.Fatalf("tool call status = %q, want denied", toolCallStatus)
+	}
+}
+
+func TestToolBeaconDeniesUnknownToolWithDurableEvent(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.enqueueRun(t, "unknown tool")
+	client := h.runtimeClient(t)
+	ctx, cancel := context.WithTimeout(h.internalContext(), 2*time.Second)
+	defer cancel()
+	stream, err := client.ConnectWorker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.CloseSend() }()
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_WorkerReady{WorkerReady: &turingv1.RuntimeWorkerReady{WorkerId: "worker-unknown-tool", AgentId: turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT, MaxConcurrentRuns: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		assigned := cmd.GetRunAssigned()
+		return assigned != nil && assigned.RunId == enqueued.RunID
+	})
+	if err := stream.Send(&turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      enqueued.RunID,
+		TraceId:    enqueued.TraceID,
+		ToolCallId: "call_unknown",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "system",
+		ToolName:   "system.shell",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	decision := recvUntil(t, stream, func(cmd *turingv1.RuntimeCommand) bool {
+		decision := cmd.GetToolPolicyDecision()
+		return decision != nil && decision.ToolCallId == "call_unknown"
+	}).GetToolPolicyDecision()
+	if decision.Decision != turingv1.ToolPolicyDecision_DECISION_DENY || decision.Reason != "unknown_tool" {
+		t.Fatalf("tool policy decision = %+v", decision)
+	}
+	replayed, _, err := h.repo.ReplayEvents(context.Background(), enqueued.SessionID, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var denied repository.Event
+	for _, event := range replayed {
+		if event.Type == "tool.call.denied" {
+			denied = event
+		}
+	}
+	if denied.EventID == "" {
+		t.Fatal("tool.call.denied event was not persisted")
+	}
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(denied.PayloadJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["toolCallId"] != "call_unknown" || payload["reason"] != "unknown_tool" {
+		t.Fatalf("tool.call.denied payload = %+v", payload)
+	}
+}
+
+func TestToolBeaconAfterRecordsCompletionEvent(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "tool after")
+	beforeArgs, err := structpb.NewStruct(map[string]any{"value": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      enqueued.RunID,
+		TraceId:    enqueued.TraceID,
+		ToolCallId: "call_echo",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName: "system",
+		ToolName:   "system.echo",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+		Args:       beforeArgs,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:         enqueued.RunID,
+		TraceId:       enqueued.TraceID,
+		ToolCallId:    "call_echo",
+		AgentId:       turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ServerName:    "system",
+		ToolName:      "system.echo",
+		Phase:         turingv1.ToolCallPhase_TOOL_CALL_PHASE_AFTER,
+		Status:        turingv1.ToolCallStatus_TOOL_CALL_STATUS_COMPLETED,
+		ResultSummary: "echoed hello",
+		DurationMs:    12,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	var toolCallStatus, resultSummary string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT status, result_summary FROM tool_calls WHERE id = ?`, "call_echo").Scan(&toolCallStatus, &resultSummary); err != nil {
+		t.Fatal(err)
+	}
+	if toolCallStatus != "completed" || resultSummary != "echoed hello" {
+		t.Fatalf("tool call status=%q result_summary=%q", toolCallStatus, resultSummary)
+	}
+	replayed, _, err := h.repo.ReplayEvents(context.Background(), enqueued.SessionID, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var completed repository.Event
+	for _, event := range replayed {
+		if event.Type == "tool.call.completed" {
+			completed = event
+		}
+	}
+	if completed.EventID == "" {
+		t.Fatal("tool.call.completed event was not persisted")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(completed.PayloadJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["toolCallId"] != "call_echo" || payload["resultSummary"] != "echoed hello" || payload["durationMs"] != float64(12) {
+		t.Fatalf("tool.call.completed payload = %+v", payload)
 	}
 }
 

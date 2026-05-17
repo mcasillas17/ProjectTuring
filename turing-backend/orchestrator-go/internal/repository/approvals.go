@@ -68,6 +68,18 @@ func (r *Repository) CreateApproval(ctx context.Context, runID string, toolCallI
 	return record, nil
 }
 
+func (r *Repository) GetApproval(ctx context.Context, approvalID string) (ApprovalRecord, error) {
+	return approvalByID(ctx, r.db, approvalID)
+}
+
+func (r *Repository) GetApprovalByToolCall(ctx context.Context, toolCallID string) (ApprovalRecord, error) {
+	var approvalID string
+	if err := r.db.QueryRowContext(ctx, `SELECT id FROM approvals WHERE tool_call_id = ?`, toolCallID).Scan(&approvalID); err != nil {
+		return ApprovalRecord{}, err
+	}
+	return approvalByID(ctx, r.db, approvalID)
+}
+
 func (r *Repository) ApproveApproval(ctx context.Context, approvalID string, approvalToken string, decidedAt string) (ApprovalRecord, error) {
 	if decidedAt == "" {
 		decidedAt = now()
@@ -89,6 +101,39 @@ func (r *Repository) ApproveApproval(ctx context.Context, approvalID string, app
 		return ApprovalRecord{}, err
 	}
 	if err := expectOneRow(result, "run is not waiting for approval"); err != nil {
+		return ApprovalRecord{}, err
+	}
+	record, err := approvalByID(ctx, tx, approvalID)
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ApprovalRecord{}, err
+	}
+	return record, nil
+}
+
+func (r *Repository) ExpireApproval(ctx context.Context, approvalID string, decidedAt string) (ApprovalRecord, error) {
+	if decidedAt == "" {
+		decidedAt = now()
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE approvals SET status = 'expired', decided_at = ? WHERE id = ? AND status = 'pending'`, decidedAt, approvalID)
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
+	if err := expectOneRow(result, "approval is not pending"); err != nil {
+		return ApprovalRecord{}, err
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE agent_runs SET status = 'failed', error_code = 'approval_expired', error_message = 'Approval expired', finished_at = ? WHERE id = (SELECT run_id FROM approvals WHERE id = ?) AND status = 'waiting_approval'`, decidedAt, approvalID)
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
+	if err := expectOneRow(result, "run not found for approval"); err != nil {
 		return ApprovalRecord{}, err
 	}
 	record, err := approvalByID(ctx, tx, approvalID)

@@ -26,6 +26,19 @@ func TestNormalizeRejectsNaN(t *testing.T) {
 	}
 }
 
+func TestMarshalCanonicalSortsKeysAndRejectsUnsafeValues(t *testing.T) {
+	got, err := MarshalCanonical(map[string]any{"b": float64(2), "a": "one"})
+	if err != nil {
+		t.Fatalf("MarshalCanonical returned error: %v", err)
+	}
+	if string(got) != `{"a":"one","b":2}` {
+		t.Fatalf("canonical JSON = %s", got)
+	}
+	if _, err := MarshalCanonical(map[string]any{"bad": math.NaN()}); err == nil {
+		t.Fatal("MarshalCanonical succeeded with NaN")
+	}
+}
+
 func TestToStructConvertsObject(t *testing.T) {
 	got, err := ToStruct(map[string]any{"ok": true, "nested": map[string]any{"value": "x"}})
 	if err != nil {

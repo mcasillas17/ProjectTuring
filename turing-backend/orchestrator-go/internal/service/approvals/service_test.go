@@ -1,0 +1,245 @@
+package approvals
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net"
+	"strings"
+	"testing"
+	"time"
+
+	turingv1 "github.com/mcasillas17/TuringAgent/gen/turing/v1/go/turing/v1"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/db"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/repository"
+	"github.com/mcasillas17/TuringAgent/turing-backend/orchestrator-go/internal/service/events"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+)
+
+type approvalHarness struct {
+	repo     *repository.Repository
+	database *db.DB
+	bus      *events.Bus
+	service  *Server
+	conn     *grpc.ClientConn
+}
+
+func newApprovalHarness(t *testing.T) *approvalHarness {
+	t.Helper()
+	database := openApprovalTestDB(t)
+	repo := repository.New(database)
+	bus := events.NewBus(8)
+	service := New(repo, bus, "approval-secret")
+	lis := bufconn.Listen(1024 * 1024)
+	grpcServer := grpc.NewServer()
+	turingv1.RegisterApprovalServiceServer(grpcServer, service)
+	go func() {
+		_ = grpcServer.Serve(lis)
+	}()
+	conn, err := grpc.DialContext(context.Background(), "bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("dial bufconn: %v", err)
+	}
+	t.Cleanup(func() {
+		grpcServer.Stop()
+		_ = conn.Close()
+	})
+	return &approvalHarness{repo: repo, database: database, bus: bus, service: service, conn: conn}
+}
+
+func openApprovalTestDB(t *testing.T) *db.DB {
+	t.Helper()
+	name := strings.NewReplacer("/", "_", " ", "_", ":", "_").Replace(t.Name())
+	sqlDB, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=memory&cache=shared&_foreign_keys=on", name))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	database := &db.DB{DB: sqlDB}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := db.ApplyMigrations(context.Background(), database); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+	return database
+}
+
+func (h *approvalHarness) createRunningToolCall(t *testing.T) repository.EnqueueUserMessageResult {
+	t.Helper()
+	session, err := h.repo.CreateSession(context.Background(), "Approvals")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enqueued, err := h.repo.EnqueueUserMessage(context.Background(), repository.EnqueueUserMessageInput{
+		SessionID: session.SessionID, Content: "needs approval", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.repo.MarkRunRunning(context.Background(), enqueued.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.repo.RecordToolCallBefore(context.Background(), repository.ToolCallRecord{ToolCallID: "call_1", RunID: enqueued.RunID}, "general_assistant", "files", "files.update", `{"path":"note.txt"}`, "sha256:placeholder"); err != nil {
+		t.Fatal(err)
+	}
+	return enqueued
+}
+
+func TestCreateApprovalForToolPersistsEventAndAudit(t *testing.T) {
+	h := newApprovalHarness(t)
+	enqueued := h.createRunningToolCall(t)
+
+	approvalID, err := h.service.CreateApprovalForTool(context.Background(), enqueued.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt", "content": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approvalID == "" {
+		t.Fatal("approvalID is empty")
+	}
+	run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "waiting_approval" {
+		t.Fatalf("run status = %q, want waiting_approval", run.Status)
+	}
+	events, _, err := h.repo.ReplayEvents(context.Background(), enqueued.SessionID, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requested repository.Event
+	for _, event := range events {
+		if event.Type == "approval.requested" {
+			requested = event
+		}
+	}
+	if requested.EventID == "" {
+		t.Fatal("approval.requested event was not persisted")
+	}
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(requested.PayloadJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["approvalId"] != approvalID || payload["toolName"] != "files.update" || payload["argsSummary"] == "" {
+		t.Fatalf("approval.requested payload = %+v", payload)
+	}
+	var auditAction string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT action FROM audit_logs WHERE target = ?`, approvalID).Scan(&auditAction); err != nil {
+		t.Fatal(err)
+	}
+	if auditAction != "approval.requested" {
+		t.Fatalf("audit action = %q", auditAction)
+	}
+}
+
+func TestCreateApprovalForToolReusesExistingToolCallApproval(t *testing.T) {
+	h := newApprovalHarness(t)
+	enqueued := h.createRunningToolCall(t)
+
+	first, err := h.service.CreateApprovalForTool(context.Background(), enqueued.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := h.service.CreateApprovalForTool(context.Background(), enqueued.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Fatalf("second approval = %q, want %q", second, first)
+	}
+	var count int
+	if err := h.database.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM approvals WHERE tool_call_id = 'call_1'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("approval count = %d, want 1", count)
+	}
+}
+
+func TestApproveApprovalReturnsStatusAndToken(t *testing.T) {
+	h := newApprovalHarness(t)
+	enqueued := h.createRunningToolCall(t)
+	approvalID, err := h.service.CreateApprovalForTool(context.Background(), enqueued.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := turingv1.NewApprovalServiceClient(h.conn)
+
+	resp, err := client.ApproveApproval(context.Background(), &turingv1.ApproveApprovalRequest{ApprovalId: approvalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Status != turingv1.ApprovalStatus_APPROVAL_STATUS_APPROVED {
+		t.Fatalf("ApproveApproval status = %s", resp.Status)
+	}
+	approval, err := h.repo.GetApproval(context.Background(), approvalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(approval.ApprovalToken, ".") {
+		t.Fatalf("approval token was not signed: %q", approval.ApprovalToken)
+	}
+	var auditAction string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT action FROM audit_logs WHERE action = 'approval.approved' AND target = ?`, approvalID).Scan(&auditAction); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDenyApprovalReturnsDeniedStatus(t *testing.T) {
+	h := newApprovalHarness(t)
+	enqueued := h.createRunningToolCall(t)
+	approvalID, err := h.service.CreateApprovalForTool(context.Background(), enqueued.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := turingv1.NewApprovalServiceClient(h.conn)
+
+	resp, err := client.DenyApproval(context.Background(), &turingv1.DenyApprovalRequest{ApprovalId: approvalID, Reason: "no"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Status != turingv1.ApprovalStatus_APPROVAL_STATUS_DENIED {
+		t.Fatalf("DenyApproval status = %s", resp.Status)
+	}
+	run, err := h.repo.GetRun(context.Background(), enqueued.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "failed" {
+		t.Fatalf("run status = %q, want failed", run.Status)
+	}
+}
+
+func TestApproveExpiredApprovalFailsPrecondition(t *testing.T) {
+	h := newApprovalHarness(t)
+	enqueued := h.createRunningToolCall(t)
+	approvalID, err := h.service.CreateApprovalForTool(context.Background(), enqueued.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.database.ExecContext(context.Background(), `UPDATE approvals SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Minute).Format(time.RFC3339Nano), approvalID); err != nil {
+		t.Fatal(err)
+	}
+	client := turingv1.NewApprovalServiceClient(h.conn)
+
+	_, err = client.ApproveApproval(context.Background(), &turingv1.ApproveApprovalRequest{ApprovalId: approvalID})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("ApproveApproval error = %v, want FailedPrecondition", err)
+	}
+	approval, err := h.repo.GetApproval(context.Background(), approvalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approval.Status != "expired" {
+		t.Fatalf("approval status = %q, want expired", approval.Status)
+	}
+}

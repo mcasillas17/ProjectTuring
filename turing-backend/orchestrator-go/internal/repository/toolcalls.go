@@ -23,7 +23,7 @@ func (r *Repository) RecordToolCallBefore(ctx context.Context, record ToolCallRe
 	if record.ApprovalID != "" {
 		approvalID = record.ApprovalID
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tool_calls (id, run_id, agent_id, server_name, tool_name, args_json, args_hash, status, approval_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, record.ToolCallID, record.RunID, agentID, serverName, toolName, argsJSON, argsHash, status, approvalID, now()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tool_calls (id, run_id, agent_id, server_name, tool_name, args_json, args_hash, status, approval_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, record.ToolCallID, record.RunID, agentID, serverName, toolName, argsJSON, argsHash, status, approvalID, now()); err != nil {
 		return err
 	}
 	return tx.Commit()
