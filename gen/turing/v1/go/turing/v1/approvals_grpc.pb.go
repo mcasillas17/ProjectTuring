@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ApprovalService_ApproveApproval_FullMethodName = "/turing.v1.ApprovalService/ApproveApproval"
-	ApprovalService_DenyApproval_FullMethodName    = "/turing.v1.ApprovalService/DenyApproval"
+	ApprovalService_ApproveApproval_FullMethodName       = "/turing.v1.ApprovalService/ApproveApproval"
+	ApprovalService_DenyApproval_FullMethodName          = "/turing.v1.ApprovalService/DenyApproval"
+	ApprovalService_GetApprovalForRuntime_FullMethodName = "/turing.v1.ApprovalService/GetApprovalForRuntime"
+	ApprovalService_ConsumeApproval_FullMethodName       = "/turing.v1.ApprovalService/ConsumeApproval"
 )
 
 // ApprovalServiceClient is the client API for ApprovalService service.
@@ -29,6 +31,8 @@ const (
 type ApprovalServiceClient interface {
 	ApproveApproval(ctx context.Context, in *ApproveApprovalRequest, opts ...grpc.CallOption) (*ApprovalResponse, error)
 	DenyApproval(ctx context.Context, in *DenyApprovalRequest, opts ...grpc.CallOption) (*ApprovalResponse, error)
+	GetApprovalForRuntime(ctx context.Context, in *GetApprovalForRuntimeRequest, opts ...grpc.CallOption) (*RuntimeApprovalState, error)
+	ConsumeApproval(ctx context.Context, in *ConsumeApprovalRequest, opts ...grpc.CallOption) (*ApprovalResponse, error)
 }
 
 type approvalServiceClient struct {
@@ -59,12 +63,34 @@ func (c *approvalServiceClient) DenyApproval(ctx context.Context, in *DenyApprov
 	return out, nil
 }
 
+func (c *approvalServiceClient) GetApprovalForRuntime(ctx context.Context, in *GetApprovalForRuntimeRequest, opts ...grpc.CallOption) (*RuntimeApprovalState, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RuntimeApprovalState)
+	err := c.cc.Invoke(ctx, ApprovalService_GetApprovalForRuntime_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *approvalServiceClient) ConsumeApproval(ctx context.Context, in *ConsumeApprovalRequest, opts ...grpc.CallOption) (*ApprovalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApprovalResponse)
+	err := c.cc.Invoke(ctx, ApprovalService_ConsumeApproval_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ApprovalServiceServer is the server API for ApprovalService service.
 // All implementations must embed UnimplementedApprovalServiceServer
 // for forward compatibility.
 type ApprovalServiceServer interface {
 	ApproveApproval(context.Context, *ApproveApprovalRequest) (*ApprovalResponse, error)
 	DenyApproval(context.Context, *DenyApprovalRequest) (*ApprovalResponse, error)
+	GetApprovalForRuntime(context.Context, *GetApprovalForRuntimeRequest) (*RuntimeApprovalState, error)
+	ConsumeApproval(context.Context, *ConsumeApprovalRequest) (*ApprovalResponse, error)
 	mustEmbedUnimplementedApprovalServiceServer()
 }
 
@@ -80,6 +106,12 @@ func (UnimplementedApprovalServiceServer) ApproveApproval(context.Context, *Appr
 }
 func (UnimplementedApprovalServiceServer) DenyApproval(context.Context, *DenyApprovalRequest) (*ApprovalResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DenyApproval not implemented")
+}
+func (UnimplementedApprovalServiceServer) GetApprovalForRuntime(context.Context, *GetApprovalForRuntimeRequest) (*RuntimeApprovalState, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetApprovalForRuntime not implemented")
+}
+func (UnimplementedApprovalServiceServer) ConsumeApproval(context.Context, *ConsumeApprovalRequest) (*ApprovalResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConsumeApproval not implemented")
 }
 func (UnimplementedApprovalServiceServer) mustEmbedUnimplementedApprovalServiceServer() {}
 func (UnimplementedApprovalServiceServer) testEmbeddedByValue()                         {}
@@ -138,6 +170,42 @@ func _ApprovalService_DenyApproval_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ApprovalService_GetApprovalForRuntime_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetApprovalForRuntimeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ApprovalServiceServer).GetApprovalForRuntime(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ApprovalService_GetApprovalForRuntime_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ApprovalServiceServer).GetApprovalForRuntime(ctx, req.(*GetApprovalForRuntimeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ApprovalService_ConsumeApproval_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConsumeApprovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ApprovalServiceServer).ConsumeApproval(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ApprovalService_ConsumeApproval_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ApprovalServiceServer).ConsumeApproval(ctx, req.(*ConsumeApprovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ApprovalService_ServiceDesc is the grpc.ServiceDesc for ApprovalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +220,14 @@ var ApprovalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DenyApproval",
 			Handler:    _ApprovalService_DenyApproval_Handler,
+		},
+		{
+			MethodName: "GetApprovalForRuntime",
+			Handler:    _ApprovalService_GetApprovalForRuntime_Handler,
+		},
+		{
+			MethodName: "ConsumeApproval",
+			Handler:    _ApprovalService_ConsumeApproval_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

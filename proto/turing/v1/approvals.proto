@@ -28,7 +28,23 @@ message ApprovalResponse {
   ApprovalStatus status = 2;
 }
 
+message GetApprovalForRuntimeRequest {
+  string approval_id = 1;
+}
+
+message RuntimeApprovalState {
+  string approval_id = 1;
+  ApprovalStatus status = 2;
+  string approval_token = 3;
+}
+
+message ConsumeApprovalRequest {
+  string approval_id = 1;
+}
+
 service ApprovalService {
   rpc ApproveApproval(ApproveApprovalRequest) returns (ApprovalResponse);
   rpc DenyApproval(DenyApprovalRequest) returns (ApprovalResponse);
+  rpc GetApprovalForRuntime(GetApprovalForRuntimeRequest) returns (RuntimeApprovalState);
+  rpc ConsumeApproval(ConsumeApprovalRequest) returns (ApprovalResponse);
 }

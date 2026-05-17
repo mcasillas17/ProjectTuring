@@ -75,6 +75,8 @@ message RuntimeRunCancelled {
 
 message RuntimeApprovalUpdated {
   string approval_id = 1;
+  string approval_token = 2;
+  string status = 3;
 }
 
 message RuntimeShutdownRequested {

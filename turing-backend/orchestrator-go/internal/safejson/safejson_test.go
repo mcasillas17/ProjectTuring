@@ -39,6 +39,16 @@ func TestMarshalCanonicalSortsKeysAndRejectsUnsafeValues(t *testing.T) {
 	}
 }
 
+func TestMarshalCanonicalDoesNotHTMLEscapeStrings(t *testing.T) {
+	got, err := MarshalCanonical(map[string]any{"content": "<tag>&value"})
+	if err != nil {
+		t.Fatalf("MarshalCanonical returned error: %v", err)
+	}
+	if string(got) != `{"content":"<tag>&value"}` {
+		t.Fatalf("canonical JSON = %s", got)
+	}
+}
+
 func TestToStructConvertsObject(t *testing.T) {
 	got, err := ToStruct(map[string]any{"ok": true, "nested": map[string]any{"value": "x"}})
 	if err != nil {

@@ -100,7 +100,13 @@ func MarshalCanonical(value any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(normalized)
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(normalized); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 func ToStruct(value map[string]any) (*structpb.Struct, error) {

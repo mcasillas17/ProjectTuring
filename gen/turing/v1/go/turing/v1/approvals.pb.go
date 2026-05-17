@@ -235,6 +235,154 @@ func (x *ApprovalResponse) GetStatus() ApprovalStatus {
 	return ApprovalStatus_APPROVAL_STATUS_UNSPECIFIED
 }
 
+type GetApprovalForRuntimeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ApprovalId    string                 `protobuf:"bytes,1,opt,name=approval_id,json=approvalId,proto3" json:"approval_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetApprovalForRuntimeRequest) Reset() {
+	*x = GetApprovalForRuntimeRequest{}
+	mi := &file_turing_v1_approvals_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetApprovalForRuntimeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetApprovalForRuntimeRequest) ProtoMessage() {}
+
+func (x *GetApprovalForRuntimeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_turing_v1_approvals_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetApprovalForRuntimeRequest.ProtoReflect.Descriptor instead.
+func (*GetApprovalForRuntimeRequest) Descriptor() ([]byte, []int) {
+	return file_turing_v1_approvals_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetApprovalForRuntimeRequest) GetApprovalId() string {
+	if x != nil {
+		return x.ApprovalId
+	}
+	return ""
+}
+
+type RuntimeApprovalState struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ApprovalId    string                 `protobuf:"bytes,1,opt,name=approval_id,json=approvalId,proto3" json:"approval_id,omitempty"`
+	Status        ApprovalStatus         `protobuf:"varint,2,opt,name=status,proto3,enum=turing.v1.ApprovalStatus" json:"status,omitempty"`
+	ApprovalToken string                 `protobuf:"bytes,3,opt,name=approval_token,json=approvalToken,proto3" json:"approval_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RuntimeApprovalState) Reset() {
+	*x = RuntimeApprovalState{}
+	mi := &file_turing_v1_approvals_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeApprovalState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeApprovalState) ProtoMessage() {}
+
+func (x *RuntimeApprovalState) ProtoReflect() protoreflect.Message {
+	mi := &file_turing_v1_approvals_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeApprovalState.ProtoReflect.Descriptor instead.
+func (*RuntimeApprovalState) Descriptor() ([]byte, []int) {
+	return file_turing_v1_approvals_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RuntimeApprovalState) GetApprovalId() string {
+	if x != nil {
+		return x.ApprovalId
+	}
+	return ""
+}
+
+func (x *RuntimeApprovalState) GetStatus() ApprovalStatus {
+	if x != nil {
+		return x.Status
+	}
+	return ApprovalStatus_APPROVAL_STATUS_UNSPECIFIED
+}
+
+func (x *RuntimeApprovalState) GetApprovalToken() string {
+	if x != nil {
+		return x.ApprovalToken
+	}
+	return ""
+}
+
+type ConsumeApprovalRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ApprovalId    string                 `protobuf:"bytes,1,opt,name=approval_id,json=approvalId,proto3" json:"approval_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsumeApprovalRequest) Reset() {
+	*x = ConsumeApprovalRequest{}
+	mi := &file_turing_v1_approvals_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsumeApprovalRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsumeApprovalRequest) ProtoMessage() {}
+
+func (x *ConsumeApprovalRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_turing_v1_approvals_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsumeApprovalRequest.ProtoReflect.Descriptor instead.
+func (*ConsumeApprovalRequest) Descriptor() ([]byte, []int) {
+	return file_turing_v1_approvals_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ConsumeApprovalRequest) GetApprovalId() string {
+	if x != nil {
+		return x.ApprovalId
+	}
+	return ""
+}
+
 var File_turing_v1_approvals_proto protoreflect.FileDescriptor
 
 const file_turing_v1_approvals_proto_rawDesc = "" +
@@ -251,17 +399,30 @@ const file_turing_v1_approvals_proto_rawDesc = "" +
 	"\x10ApprovalResponse\x12\x1f\n" +
 	"\vapproval_id\x18\x01 \x01(\tR\n" +
 	"approvalId\x121\n" +
-	"\x06status\x18\x02 \x01(\x0e2\x19.turing.v1.ApprovalStatusR\x06status*\xc3\x01\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x19.turing.v1.ApprovalStatusR\x06status\"?\n" +
+	"\x1cGetApprovalForRuntimeRequest\x12\x1f\n" +
+	"\vapproval_id\x18\x01 \x01(\tR\n" +
+	"approvalId\"\x91\x01\n" +
+	"\x14RuntimeApprovalState\x12\x1f\n" +
+	"\vapproval_id\x18\x01 \x01(\tR\n" +
+	"approvalId\x121\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x19.turing.v1.ApprovalStatusR\x06status\x12%\n" +
+	"\x0eapproval_token\x18\x03 \x01(\tR\rapprovalToken\"9\n" +
+	"\x16ConsumeApprovalRequest\x12\x1f\n" +
+	"\vapproval_id\x18\x01 \x01(\tR\n" +
+	"approvalId*\xc3\x01\n" +
 	"\x0eApprovalStatus\x12\x1f\n" +
 	"\x1bAPPROVAL_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17APPROVAL_STATUS_PENDING\x10\x01\x12\x1c\n" +
 	"\x18APPROVAL_STATUS_APPROVED\x10\x02\x12\x1a\n" +
 	"\x16APPROVAL_STATUS_DENIED\x10\x03\x12\x1b\n" +
 	"\x17APPROVAL_STATUS_EXPIRED\x10\x04\x12\x1c\n" +
-	"\x18APPROVAL_STATUS_CONSUMED\x10\x052\xb1\x01\n" +
+	"\x18APPROVAL_STATUS_CONSUMED\x10\x052\xe7\x02\n" +
 	"\x0fApprovalService\x12Q\n" +
 	"\x0fApproveApproval\x12!.turing.v1.ApproveApprovalRequest\x1a\x1b.turing.v1.ApprovalResponse\x12K\n" +
-	"\fDenyApproval\x12\x1e.turing.v1.DenyApprovalRequest\x1a\x1b.turing.v1.ApprovalResponseB>Z<github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1b\x06proto3"
+	"\fDenyApproval\x12\x1e.turing.v1.DenyApprovalRequest\x1a\x1b.turing.v1.ApprovalResponse\x12a\n" +
+	"\x15GetApprovalForRuntime\x12'.turing.v1.GetApprovalForRuntimeRequest\x1a\x1f.turing.v1.RuntimeApprovalState\x12Q\n" +
+	"\x0fConsumeApproval\x12!.turing.v1.ConsumeApprovalRequest\x1a\x1b.turing.v1.ApprovalResponseB>Z<github.com/mcasillas17/TuringAgent/gen/turing/v1/go;turingv1b\x06proto3"
 
 var (
 	file_turing_v1_approvals_proto_rawDescOnce sync.Once
@@ -276,24 +437,32 @@ func file_turing_v1_approvals_proto_rawDescGZIP() []byte {
 }
 
 var file_turing_v1_approvals_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_turing_v1_approvals_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_turing_v1_approvals_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_turing_v1_approvals_proto_goTypes = []any{
-	(ApprovalStatus)(0),            // 0: turing.v1.ApprovalStatus
-	(*ApproveApprovalRequest)(nil), // 1: turing.v1.ApproveApprovalRequest
-	(*DenyApprovalRequest)(nil),    // 2: turing.v1.DenyApprovalRequest
-	(*ApprovalResponse)(nil),       // 3: turing.v1.ApprovalResponse
+	(ApprovalStatus)(0),                  // 0: turing.v1.ApprovalStatus
+	(*ApproveApprovalRequest)(nil),       // 1: turing.v1.ApproveApprovalRequest
+	(*DenyApprovalRequest)(nil),          // 2: turing.v1.DenyApprovalRequest
+	(*ApprovalResponse)(nil),             // 3: turing.v1.ApprovalResponse
+	(*GetApprovalForRuntimeRequest)(nil), // 4: turing.v1.GetApprovalForRuntimeRequest
+	(*RuntimeApprovalState)(nil),         // 5: turing.v1.RuntimeApprovalState
+	(*ConsumeApprovalRequest)(nil),       // 6: turing.v1.ConsumeApprovalRequest
 }
 var file_turing_v1_approvals_proto_depIdxs = []int32{
 	0, // 0: turing.v1.ApprovalResponse.status:type_name -> turing.v1.ApprovalStatus
-	1, // 1: turing.v1.ApprovalService.ApproveApproval:input_type -> turing.v1.ApproveApprovalRequest
-	2, // 2: turing.v1.ApprovalService.DenyApproval:input_type -> turing.v1.DenyApprovalRequest
-	3, // 3: turing.v1.ApprovalService.ApproveApproval:output_type -> turing.v1.ApprovalResponse
-	3, // 4: turing.v1.ApprovalService.DenyApproval:output_type -> turing.v1.ApprovalResponse
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // 1: turing.v1.RuntimeApprovalState.status:type_name -> turing.v1.ApprovalStatus
+	1, // 2: turing.v1.ApprovalService.ApproveApproval:input_type -> turing.v1.ApproveApprovalRequest
+	2, // 3: turing.v1.ApprovalService.DenyApproval:input_type -> turing.v1.DenyApprovalRequest
+	4, // 4: turing.v1.ApprovalService.GetApprovalForRuntime:input_type -> turing.v1.GetApprovalForRuntimeRequest
+	6, // 5: turing.v1.ApprovalService.ConsumeApproval:input_type -> turing.v1.ConsumeApprovalRequest
+	3, // 6: turing.v1.ApprovalService.ApproveApproval:output_type -> turing.v1.ApprovalResponse
+	3, // 7: turing.v1.ApprovalService.DenyApproval:output_type -> turing.v1.ApprovalResponse
+	5, // 8: turing.v1.ApprovalService.GetApprovalForRuntime:output_type -> turing.v1.RuntimeApprovalState
+	3, // 9: turing.v1.ApprovalService.ConsumeApproval:output_type -> turing.v1.ApprovalResponse
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_turing_v1_approvals_proto_init() }
@@ -307,7 +476,7 @@ func file_turing_v1_approvals_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_turing_v1_approvals_proto_rawDesc), len(file_turing_v1_approvals_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

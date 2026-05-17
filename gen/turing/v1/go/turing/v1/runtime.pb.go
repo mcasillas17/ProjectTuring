@@ -699,6 +699,8 @@ func (x *RuntimeRunCancelled) GetReason() string {
 type RuntimeApprovalUpdated struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ApprovalId    string                 `protobuf:"bytes,1,opt,name=approval_id,json=approvalId,proto3" json:"approval_id,omitempty"`
+	ApprovalToken string                 `protobuf:"bytes,2,opt,name=approval_token,json=approvalToken,proto3" json:"approval_token,omitempty"`
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -736,6 +738,20 @@ func (*RuntimeApprovalUpdated) Descriptor() ([]byte, []int) {
 func (x *RuntimeApprovalUpdated) GetApprovalId() string {
 	if x != nil {
 		return x.ApprovalId
+	}
+	return ""
+}
+
+func (x *RuntimeApprovalUpdated) GetApprovalToken() string {
+	if x != nil {
+		return x.ApprovalToken
+	}
+	return ""
+}
+
+func (x *RuntimeApprovalUpdated) GetStatus() string {
+	if x != nil {
+		return x.Status
 	}
 	return ""
 }
@@ -983,10 +999,12 @@ const file_turing_v1_runtime_proto_rawDesc = "" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\"D\n" +
 	"\x13RuntimeRunCancelled\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"9\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"x\n" +
 	"\x16RuntimeApprovalUpdated\x12\x1f\n" +
 	"\vapproval_id\x18\x01 \x01(\tR\n" +
-	"approvalId\"2\n" +
+	"approvalId\x12%\n" +
+	"\x0eapproval_token\x18\x02 \x01(\tR\rapprovalToken\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"2\n" +
 	"\x18RuntimeShutdownRequested\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xe2\x03\n" +
 	"\x0eRuntimeCommand\x12K\n" +

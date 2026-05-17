@@ -916,6 +916,22 @@ func TestToolBeaconRejectsTerminalRun(t *testing.T) {
 	}
 }
 
+func TestToolBeaconRejectsTraceMismatch(t *testing.T) {
+	h := newHarness(t)
+	enqueued := h.createRunningRunResult(t, "trace mismatch")
+	err := h.service.applyUpdate(context.Background(), &turingv1.RuntimeUpdate{Update: &turingv1.RuntimeUpdate_ToolBeacon{ToolBeacon: &turingv1.ToolCallBeacon{
+		RunId:      enqueued.RunID,
+		TraceId:    "trace_wrong",
+		ToolCallId: "call_trace_mismatch",
+		AgentId:    turingv1.AgentId_AGENT_ID_GENERAL_ASSISTANT,
+		ToolName:   "system.time",
+		Phase:      turingv1.ToolCallPhase_TOOL_CALL_PHASE_BEFORE,
+	}}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("trace mismatch error = %v, want InvalidArgument", err)
+	}
+}
+
 func TestToolBeaconSendsPolicyDecisionCommand(t *testing.T) {
 	h := newHarness(t)
 	enqueued := h.enqueueRun(t, "tool decision")
@@ -1017,9 +1033,19 @@ func TestToolBeaconRequiresApprovalForFilesTool(t *testing.T) {
 		if event.Type == "approval.requested" && event.RunID.Valid && event.RunID.String == enqueued.RunID {
 			sawRequested = true
 		}
+		if event.Type == "tool.call.started" && event.RunID.Valid && event.RunID.String == enqueued.RunID {
+			t.Fatal("approval-required tool emitted tool.call.started before approval")
+		}
 	}
 	if !sawRequested {
 		t.Fatal("approval.requested event was not persisted")
+	}
+	var auditAction string
+	if err := h.database.QueryRowContext(context.Background(), `SELECT action FROM audit_logs WHERE target = 'call_files_update'`).Scan(&auditAction); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		t.Fatal(err)
+	}
+	if auditAction != "" {
+		t.Fatalf("approval-required before beacon wrote tool audit action %q before approval", auditAction)
 	}
 }
 
@@ -1173,6 +1199,25 @@ func TestToolBeaconAfterRecordsCompletionEvent(t *testing.T) {
 	if toolCallStatus != "completed" || resultSummary != "echoed hello" {
 		t.Fatalf("tool call status=%q result_summary=%q", toolCallStatus, resultSummary)
 	}
+	var auditActions []string
+	rows, err := h.database.QueryContext(context.Background(), `SELECT action FROM audit_logs WHERE target = ? ORDER BY created_at`, "call_echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var action string
+		if err := rows.Scan(&action); err != nil {
+			t.Fatal(err)
+		}
+		auditActions = append(auditActions, action)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(auditActions) != 2 || auditActions[0] != "tool.call.before" || auditActions[1] != "tool.call.after" {
+		t.Fatalf("audit actions = %+v", auditActions)
+	}
 	replayed, _, err := h.repo.ReplayEvents(context.Background(), enqueued.SessionID, 0, 20)
 	if err != nil {
 		t.Fatal(err)
@@ -1192,6 +1237,28 @@ func TestToolBeaconAfterRecordsCompletionEvent(t *testing.T) {
 	}
 	if payload["toolCallId"] != "call_echo" || payload["resultSummary"] != "echoed hello" || payload["durationMs"] != float64(12) {
 		t.Fatalf("tool.call.completed payload = %+v", payload)
+	}
+}
+
+func TestNotifyApprovalUpdatedSendsTokenToAssignedWorker(t *testing.T) {
+	h := newHarness(t)
+	commands := make(chan *turingv1.RuntimeCommand, 1)
+	h.service.mu.Lock()
+	h.service.workers["worker-approval-update"] = &worker{commands: commands, maxConcurrent: 1, assignments: map[string]string{"run_approval": "job_approval"}}
+	h.service.mu.Unlock()
+
+	if err := h.service.NotifyApprovalUpdated(context.Background(), "run_approval", "appr_1", "approved", "header.payload.signature"); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case cmd := <-commands:
+		update := cmd.GetApprovalUpdated()
+		if update.GetApprovalId() != "appr_1" || update.GetStatus() != "approved" || update.GetApprovalToken() != "header.payload.signature" {
+			t.Fatalf("approval_updated = %+v", update)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for approval_updated command")
 	}
 }
 

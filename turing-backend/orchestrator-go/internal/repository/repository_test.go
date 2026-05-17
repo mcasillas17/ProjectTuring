@@ -723,6 +723,39 @@ func TestApprovalLifecycleRecordsTokenAndUpdatesRun(t *testing.T) {
 	}
 }
 
+func TestRecordToolCallBeforeRejectsConflictingID(t *testing.T) {
+	database := openTestDB(t)
+	repo := New(database)
+	ctx := context.Background()
+	firstSession, err := repo.CreateSession(ctx, "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: firstSession.SessionID, Content: "first", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSession, err := repo.CreateSession(ctx, "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.EnqueueUserMessage(ctx, EnqueueUserMessageInput{
+		SessionID: secondSession.SessionID, Content: "second", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RecordToolCallBefore(ctx, ToolCallRecord{ToolCallID: "tool_conflict", RunID: first.RunID}, "general_assistant", "files", "files.update", `{"path":"a.txt"}`, "sha256:first"); err != nil {
+		t.Fatal(err)
+	}
+	err = repo.RecordToolCallBefore(ctx, ToolCallRecord{ToolCallID: "tool_conflict", RunID: second.RunID}, "general_assistant", "files", "files.update", `{"path":"a.txt"}`, "sha256:first")
+	if err == nil {
+		t.Fatal("RecordToolCallBefore allowed same tool_call_id for a different run")
+	}
+}
+
 func TestApprovalFailsWithoutMatchingToolCall(t *testing.T) {
 	database := openTestDB(t)
 	repo := New(database)

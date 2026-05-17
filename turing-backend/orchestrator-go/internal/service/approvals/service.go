@@ -26,18 +26,27 @@ type Server struct {
 	repo      *repository.Repository
 	bus       *events.Bus
 	audit     *audit.Server
+	notifier  approvalNotifier
 	jwtSecret string
+}
+
+type approvalNotifier interface {
+	NotifyApprovalUpdated(ctx context.Context, runID string, approvalID string, status string, approvalToken string) error
 }
 
 func New(repo *repository.Repository, bus *events.Bus, jwtSecret string) *Server {
 	return &Server{repo: repo, bus: bus, audit: audit.New(repo), jwtSecret: jwtSecret}
 }
 
+func (s *Server) SetNotifier(notifier approvalNotifier) {
+	s.notifier = notifier
+}
+
 func (s *Server) CreateApprovalForTool(ctx context.Context, runID string, toolCallID string, agentID string, toolName string, args map[string]any) (string, error) {
 	if runID == "" || toolCallID == "" || agentID == "" || toolName == "" {
 		return "", status.Error(codes.InvalidArgument, "approval tool context is required")
 	}
-	if existing, err := s.repo.GetApprovalByToolCall(ctx, toolCallID); err == nil {
+	if existing, err := s.repo.GetApprovalByToolCall(ctx, runID, toolCallID); err == nil {
 		return existing.ApprovalID, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
@@ -89,6 +98,11 @@ func (s *Server) ApproveApproval(ctx context.Context, req *turingv1.ApproveAppro
 		if auditErr := s.audit.Record(ctx, expiredApproval.RunID, "system", "", "approval.expired", expiredApproval.ApprovalID, map[string]any{"toolName": expiredApproval.ToolName}); auditErr != nil {
 			return nil, auditErr
 		}
+		if s.notifier != nil {
+			if notifyErr := s.notifier.NotifyApprovalUpdated(ctx, expiredApproval.RunID, expiredApproval.ApprovalID, "expired", ""); notifyErr != nil {
+				return nil, notifyErr
+			}
+		}
 		return nil, status.Error(codes.FailedPrecondition, "approval expired")
 	}
 	token, err := s.signApprovalToken(approval)
@@ -106,6 +120,11 @@ func (s *Server) ApproveApproval(ctx context.Context, req *turingv1.ApproveAppro
 	s.publishEvent(event)
 	if err := s.audit.Record(ctx, approved.RunID, "client", "", "approval.approved", approved.ApprovalID, map[string]any{"toolName": approved.ToolName}); err != nil {
 		return nil, err
+	}
+	if s.notifier != nil {
+		if err := s.notifier.NotifyApprovalUpdated(ctx, approved.RunID, approved.ApprovalID, "approved", approved.ApprovalToken); err != nil {
+			return nil, err
+		}
 	}
 	return &turingv1.ApprovalResponse{ApprovalId: approved.ApprovalID, Status: turingv1.ApprovalStatus_APPROVAL_STATUS_APPROVED}, nil
 }
@@ -126,7 +145,46 @@ func (s *Server) DenyApproval(ctx context.Context, req *turingv1.DenyApprovalReq
 	if err := s.audit.Record(ctx, denied.RunID, "client", "", "approval.denied", denied.ApprovalID, map[string]any{"toolName": denied.ToolName}); err != nil {
 		return nil, err
 	}
+	if s.notifier != nil {
+		if err := s.notifier.NotifyApprovalUpdated(ctx, denied.RunID, denied.ApprovalID, "denied", ""); err != nil {
+			return nil, err
+		}
+	}
 	return &turingv1.ApprovalResponse{ApprovalId: denied.ApprovalID, Status: turingv1.ApprovalStatus_APPROVAL_STATUS_DENIED}, nil
+}
+
+func (s *Server) GetApprovalForRuntime(ctx context.Context, req *turingv1.GetApprovalForRuntimeRequest) (*turingv1.RuntimeApprovalState, error) {
+	if req == nil || req.ApprovalId == "" {
+		return nil, status.Error(codes.InvalidArgument, "approval_id is required")
+	}
+	approval, err := s.repo.GetApproval(ctx, req.ApprovalId)
+	if err != nil {
+		return nil, mapApprovalError(err)
+	}
+	return &turingv1.RuntimeApprovalState{
+		ApprovalId:    approval.ApprovalID,
+		Status:        mapApprovalStatus(approval.Status),
+		ApprovalToken: approval.ApprovalToken,
+	}, nil
+}
+
+func (s *Server) ConsumeApproval(ctx context.Context, req *turingv1.ConsumeApprovalRequest) (*turingv1.ApprovalResponse, error) {
+	if req == nil || req.ApprovalId == "" {
+		return nil, status.Error(codes.InvalidArgument, "approval_id is required")
+	}
+	consumed, err := s.repo.ConsumeApproval(ctx, req.ApprovalId, "")
+	if err != nil {
+		return nil, mapApprovalError(err)
+	}
+	event, err := s.appendApprovalEvent(ctx, consumed, "approval.consumed", map[string]any{"approvalId": consumed.ApprovalID, "toolName": consumed.ToolName})
+	if err != nil {
+		return nil, err
+	}
+	s.publishEvent(event)
+	if err := s.audit.Record(ctx, consumed.RunID, "mcp", "", "approval.consumed", consumed.ApprovalID, map[string]any{"toolName": consumed.ToolName}); err != nil {
+		return nil, err
+	}
+	return &turingv1.ApprovalResponse{ApprovalId: consumed.ApprovalID, Status: turingv1.ApprovalStatus_APPROVAL_STATUS_CONSUMED}, nil
 }
 
 func canonicalArgs(args map[string]any) (string, string, error) {
@@ -225,8 +283,25 @@ func mapApprovalError(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return status.Error(codes.NotFound, "approval not found")
 	}
-	if strings.Contains(err.Error(), "not pending") || strings.Contains(err.Error(), "not waiting") || strings.Contains(err.Error(), "not found for approval") {
+	if strings.Contains(err.Error(), "not pending") || strings.Contains(err.Error(), "not approved") || strings.Contains(err.Error(), "not waiting") || strings.Contains(err.Error(), "not found for approval") {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return err
+}
+
+func mapApprovalStatus(value string) turingv1.ApprovalStatus {
+	switch value {
+	case "pending":
+		return turingv1.ApprovalStatus_APPROVAL_STATUS_PENDING
+	case "approved":
+		return turingv1.ApprovalStatus_APPROVAL_STATUS_APPROVED
+	case "denied":
+		return turingv1.ApprovalStatus_APPROVAL_STATUS_DENIED
+	case "expired":
+		return turingv1.ApprovalStatus_APPROVAL_STATUS_EXPIRED
+	case "consumed":
+		return turingv1.ApprovalStatus_APPROVAL_STATUS_CONSUMED
+	default:
+		return turingv1.ApprovalStatus_APPROVAL_STATUS_UNSPECIFIED
+	}
 }

@@ -165,6 +165,33 @@ func TestCreateApprovalForToolReusesExistingToolCallApproval(t *testing.T) {
 	}
 }
 
+func TestCreateApprovalForToolRejectsExistingApprovalForDifferentRun(t *testing.T) {
+	h := newApprovalHarness(t)
+	first := h.createRunningToolCall(t)
+	firstID, err := h.service.CreateApprovalForTool(context.Background(), first.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSession, err := h.repo.CreateSession(context.Background(), "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := h.repo.EnqueueUserMessage(context.Background(), repository.EnqueueUserMessageInput{
+		SessionID: secondSession.SessionID, Content: "second", AgentID: "general_assistant", ModelProvider: "ollama", Model: "llama3.2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.repo.MarkRunRunning(context.Background(), second.RunID); err != nil {
+		t.Fatal(err)
+	}
+
+	secondID, err := h.service.CreateApprovalForTool(context.Background(), second.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err == nil {
+		t.Fatalf("CreateApprovalForTool reused cross-run approval %q as %q", firstID, secondID)
+	}
+}
+
 func TestApproveApprovalReturnsStatusAndToken(t *testing.T) {
 	h := newApprovalHarness(t)
 	enqueued := h.createRunningToolCall(t)
@@ -192,6 +219,72 @@ func TestApproveApprovalReturnsStatusAndToken(t *testing.T) {
 	if err := h.database.QueryRowContext(context.Background(), `SELECT action FROM audit_logs WHERE action = 'approval.approved' AND target = ?`, approvalID).Scan(&auditAction); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestApproveApprovalNotifiesRuntimeWithToken(t *testing.T) {
+	h := newApprovalHarness(t)
+	enqueued := h.createRunningToolCall(t)
+	approvalID, err := h.service.CreateApprovalForTool(context.Background(), enqueued.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifier := &recordingApprovalNotifier{}
+	h.service.SetNotifier(notifier)
+
+	_, err = h.service.ApproveApproval(context.Background(), &turingv1.ApproveApprovalRequest{ApprovalId: approvalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notifier.runID != enqueued.RunID || notifier.approvalID != approvalID || notifier.status != "approved" || !strings.Contains(notifier.approvalToken, ".") {
+		t.Fatalf("approval notification = %+v", notifier)
+	}
+}
+
+func TestGetApprovalForRuntimeReturnsApprovedTokenAndConsumeConsumesOnce(t *testing.T) {
+	h := newApprovalHarness(t)
+	enqueued := h.createRunningToolCall(t)
+	approvalID, err := h.service.CreateApprovalForTool(context.Background(), enqueued.RunID, "call_1", "general_assistant", "files.update", map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := turingv1.NewApprovalServiceClient(h.conn)
+	if _, err := client.ApproveApproval(context.Background(), &turingv1.ApproveApprovalRequest{ApprovalId: approvalID}); err != nil {
+		t.Fatal(err)
+	}
+
+	runtimeState, err := client.GetApprovalForRuntime(context.Background(), &turingv1.GetApprovalForRuntimeRequest{ApprovalId: approvalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeState.Status != turingv1.ApprovalStatus_APPROVAL_STATUS_APPROVED || !strings.Contains(runtimeState.ApprovalToken, ".") {
+		t.Fatalf("runtime approval state = %+v", runtimeState)
+	}
+	consumed, err := client.ConsumeApproval(context.Background(), &turingv1.ConsumeApprovalRequest{ApprovalId: approvalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consumed.Status != turingv1.ApprovalStatus_APPROVAL_STATUS_CONSUMED {
+		t.Fatalf("consume status = %s", consumed.Status)
+	}
+	_, err = client.ConsumeApproval(context.Background(), &turingv1.ConsumeApprovalRequest{ApprovalId: approvalID})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("second ConsumeApproval error = %v, want FailedPrecondition", err)
+	}
+}
+
+type recordingApprovalNotifier struct {
+	runID         string
+	approvalID    string
+	status        string
+	approvalToken string
+}
+
+func (n *recordingApprovalNotifier) NotifyApprovalUpdated(ctx context.Context, runID string, approvalID string, status string, approvalToken string) error {
+	n.runID = runID
+	n.approvalID = approvalID
+	n.status = status
+	n.approvalToken = approvalToken
+	return nil
 }
 
 func TestDenyApprovalReturnsDeniedStatus(t *testing.T) {

@@ -72,9 +72,9 @@ func (r *Repository) GetApproval(ctx context.Context, approvalID string) (Approv
 	return approvalByID(ctx, r.db, approvalID)
 }
 
-func (r *Repository) GetApprovalByToolCall(ctx context.Context, toolCallID string) (ApprovalRecord, error) {
+func (r *Repository) GetApprovalByToolCall(ctx context.Context, runID string, toolCallID string) (ApprovalRecord, error) {
 	var approvalID string
-	if err := r.db.QueryRowContext(ctx, `SELECT id FROM approvals WHERE tool_call_id = ?`, toolCallID).Scan(&approvalID); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT id FROM approvals WHERE run_id = ? AND tool_call_id = ?`, runID, toolCallID).Scan(&approvalID); err != nil {
 		return ApprovalRecord{}, err
 	}
 	return approvalByID(ctx, r.db, approvalID)
